@@ -22,7 +22,7 @@ struct ContentView: View {
     @AppStorage("recordMic") private var recordMic: Bool = false
     @AppStorage("micDevice") private var micDevice: String = "default"
     @AppStorage("showOnDock") private var showOnDock: Bool = true
-    @AppStorage("showMenubar") private var showMenubar: Bool = false
+    @AppStorage("showMenubar") private var showMenubar: Bool = true
 
     var appDelegate = AppDelegate.shared
     
@@ -219,12 +219,7 @@ struct ContentView: View {
                         iDevicePopoverView(closePopover: { isPopoverShowing = false })
                     }
                     Divider().frame(height: 70)
-                    Button(action: {
-                        closeMainWindow()
-                        appDelegate.openSettingPanel()
-                    }, label: {
-                        SelectorView(title: "Preferences".local, symbol: "gearshape").cornerRadius(8)
-                    }).buttonStyle(.plain)
+                    PreferencesButton()
                     if fromStatusBar || (!showOnDock && !showMenubar) {
                         Divider().frame(height: 70)
                         Button(action: {

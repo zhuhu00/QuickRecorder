@@ -14,7 +14,6 @@ import UserNotifications
 import KeyboardShortcuts
 import ServiceManagement
 import CoreMediaIO
-import Sparkle
 
 let isMacOS12 = ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 12
 let isMacOS14 = ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 14
@@ -35,18 +34,9 @@ let deviceWindow = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 200, heig
 let controlPanel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10), styleMask: [.fullSizeContentView], backing: .buffered, defer: false)
 let countdownPanel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 120, height: 120), styleMask: [.fullSizeContentView], backing: .buffered, defer: false)
 let previewWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 266, height: 156), styleMask: [.fullSizeContentView], backing: .buffered, defer: false)
-var updaterController: SPUStandardUpdaterController!
-
 @main
 struct QuickRecorderApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    //private let updaterController: SPUStandardUpdaterController
-        
-    init() {
-        // If you want to start the updater manually, pass false to startingUpdater and call .startUpdater() later
-        // This is where you can also pass an updater delegate if you need one
-        updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
-    }
     
     var body: some Scene {
         DocumentGroup(newDocument: qmaPackageHandle()) { file in
@@ -85,12 +75,7 @@ struct QuickRecorderApp: App {
                 )
         }
         .handlesExternalEvents(matching: [])
-        .commands {
-            CommandGroup(replacing: .newItem) {}
-            CommandGroup(after: .appInfo) {
-                CheckForUpdatesView(updater: updaterController.updater)
-            }
-        }
+        .commands { CommandGroup(replacing: .newItem) {} }
     }
 }
 
@@ -115,7 +100,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
     var frameQueue = FixedLengthArray<CMTime>(maxLength: 20)
     
     @AppStorage("showOnDock")       var showOnDock: Bool = true
-    @AppStorage("showMenubar")      var showMenubar: Bool = false
+    @AppStorage("showMenubar")      var showMenubar: Bool = true
     @AppStorage("enableAEC")        var enableAEC: Bool = false
     @AppStorage("recordMic")        var recordMic: Bool = false
     @AppStorage("micDevice")        var micDevice: String = "default"
@@ -201,7 +186,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
     func applicationWillFinishLaunching(_ notification: Notification) {
         scPerm = SCContext.updateAvailableContentSync() != nil
         
-        let process = NSWorkspace.shared.runningApplications.filter({ $0.bundleIdentifier == "com.lihaoyun6.QuickRecorder" })
+        let process = NSWorkspace.shared.runningApplications.filter({ $0.bundleIdentifier == Bundle.main.bundleIdentifier })
         if process.count > 1 {
             DispatchQueue.main.async {
                 let button = createAlert(title: "QuickRecorder is Running".local, message: "Please do not run multiple instances!".local, button1: "Quit".local).runModal()
@@ -224,6 +209,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
                 "includeMenuBar": true,
                 "videoQuality": 1.0,
                 "countdown": 0,
+                "cameraDevice": "default",
                 "videoFormat": VideoFormat.mp4.rawValue,
                 "pixelFormat": PixFormat.delault.rawValue,
                 "encoder": Encoder.h264.rawValue,
@@ -235,7 +221,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
                 "recordWinSound": isMacOS12 ? false : true,
                 "trimAfterRecord": false,
                 "showOnDock": true,
-                "showMenubar": false,
+                "showMenubar": true,
                 "enableAEC": false,
                 "recordHDR": false,
                 "preventSleep": true,
@@ -280,8 +266,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
         camWindow.level = .floating
         camWindow.isReleasedWhenClosed = false
         camWindow.isMovableByWindowBackground = true
+        camWindow.hidesOnDeactivate = false
         camWindow.backgroundColor = NSColor.clear
-        camWindow.collectionBehavior = [.canJoinAllSpaces]
+        camWindow.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         
         countdownPanel.title = "Countdown Panel".local
         countdownPanel.level = .floating
@@ -387,9 +374,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
     
     func openSettingPanel() {
         NSApp.activate(ignoringOtherApps: true)
-        if #available(macOS 14, *) {
-            NSApp.mainMenu?.items.first?.submenu?.item(at: 3)?.performAction()
-        } else if #available(macOS 13, *) {
+        if #available(macOS 13, *) {
             NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
         } else {
             NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
@@ -548,7 +533,7 @@ extension NSMenuItem {
 
 extension NSImage {
     static func createScreenShot() -> NSImage? {
-        let excludedAppBundleIDs = ["com.lihaoyun6.QuickRecorder"]
+        let excludedAppBundleIDs = [Bundle.main.bundleIdentifier].compactMap { $0 }
         var exclusionPIDs = [Int]()
         for app in NSWorkspace.shared.runningApplications {
             if excludedAppBundleIDs.contains(app.bundleIdentifier ?? "") {

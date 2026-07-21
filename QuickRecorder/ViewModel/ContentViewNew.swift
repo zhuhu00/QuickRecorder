@@ -15,12 +15,16 @@ struct ContentViewNew: View {
     @State private var infoGlowing = false
     @State private var micGlowing = false
     @State private var isPopoverShowing = false
+    @State private var cameraIsRunning = false
+    @State private var cameraList = SCContext.getCameras()
     @State private var micList = SCContext.getMicrophone()
     @AppStorage("enableAEC") private var enableAEC: Bool = false
+    @AppStorage("cameraDevice") private var cameraDevice: String = "default"
     @AppStorage("recordMic") private var recordMic: Bool = false
     @AppStorage("micDevice") private var micDevice: String = "default"
+    @AppStorage("showMouse") private var showMouse: Bool = true
     @AppStorage("showOnDock") private var showOnDock: Bool = true
-    @AppStorage("showMenubar") private var showMenubar: Bool = false
+    @AppStorage("showMenubar") private var showMenubar: Bool = true
 
     var appDelegate = AppDelegate.shared
     
@@ -200,14 +204,9 @@ struct ContentViewNew: View {
                     }).buttonStyle(.plain)
                         .popover(isPresented: $isPopoverShowing, arrowEdge: .bottom) {
                             iDevicePopoverView(closePopover: { isPopoverShowing = false })
-                        }
+                    }
                     Divider().frame(height: 70)
-                    Button(action: {
-                        closeMainWindow()
-                        appDelegate.openSettingPanel()
-                    }, label: {
-                        SelectorView(title: "Preferences".local, symbol: "gearshape").cornerRadius(8)
-                    }).buttonStyle(.plain)
+                    PreferencesButton()
                     Divider().frame(height: 70)
                     Button(action: {
                         NSApp.terminate(self)
@@ -217,7 +216,133 @@ struct ContentViewNew: View {
                             .foregroundStyle(.darkMyRed)
                     }).buttonStyle(.plain)
                 }
+                Divider()
+                VStack(spacing: 0) {
+                    HStack(spacing: 8) {
+                        Toggle(isOn: cameraEnabledBinding) {
+                            Label("Camera".local, systemImage: "video.fill")
+                        }
+                        .toggleStyle(.checkbox)
+                        .frame(width: 145, alignment: .leading)
+                        .disabled(cameraList.isEmpty)
+
+                        Picker("Camera".local, selection: $cameraDevice) {
+                            if let preferredCamera {
+                                Text("\("Default".local) — \(preferredCamera.localizedName)")
+                                    .tag("default")
+                            }
+                            ForEach(cameraList.filter { $0.uniqueID != preferredCamera?.uniqueID }, id: \.uniqueID) { camera in
+                                Text(camera.localizedName).tag(camera.uniqueID)
+                            }
+                        }
+                        .labelsHidden()
+                        .disabled(cameraList.isEmpty)
+                        .frame(maxWidth: .infinity)
+                        .controlSize(.small)
+                        .onChange(of: cameraDevice) { _ in switchCameraIfRunning() }
+                    }
+                    .padding(.vertical, 6)
+
+                    Divider()
+                    HStack(spacing: 8) {
+                        Toggle(isOn: $recordMic) {
+                            Label("Microphone".local, systemImage: "mic.fill")
+                        }
+                        .toggleStyle(.checkbox)
+                        .frame(width: 145, alignment: .leading)
+                        .disabled(micList.isEmpty)
+
+                        Picker("Microphone".local, selection: $micDevice) {
+                            Text("Default".local).tag("default")
+                            ForEach(micList, id: \.uniqueID) { microphone in
+                                Text(microphone.localizedName).tag(microphone.localizedName)
+                            }
+                        }
+                        .labelsHidden()
+                        .disabled(micList.isEmpty)
+                        .frame(maxWidth: .infinity)
+                        .controlSize(.small)
+                    }
+                    .padding(.vertical, 6)
+
+                    Divider()
+                    Toggle(isOn: $showMouse) {
+                        Label("Record Cursor".local, systemImage: "cursorarrow")
+                    }
+                    .toggleStyle(.checkbox)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 7)
+                }
+                .padding(.horizontal, 6)
+                .onAppear {
+                    refreshDevices()
+                    refreshCameraState()
+                }
+                .onReceive(updateTimer) { _ in refreshCameraState() }
             }.padding(10)
+        }
+    }
+
+    private var cameraEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { cameraIsRunning },
+            set: { enabled in
+                guard enabled != cameraIsRunning else { return }
+                toggleCamera()
+            }
+        )
+    }
+
+    private func toggleCamera() {
+        if cameraIsRunning {
+            SCContext.recordCam = ""
+            appDelegate.closeCamera()
+            refreshCameraState()
+            return
+        }
+
+        guard let camera = selectedCamera else { return }
+
+        SCContext.recordCam = camera.localizedName
+        appDelegate.recordingCamera(with: camera)
+        refreshCameraState()
+    }
+
+    private func switchCameraIfRunning() {
+        guard cameraIsRunning,
+              let camera = selectedCamera,
+              SCContext.recordCam != camera.localizedName else { return }
+        appDelegate.closeCamera()
+        SCContext.recordCam = camera.localizedName
+        appDelegate.recordingCamera(with: camera)
+        refreshCameraState()
+    }
+
+    private var preferredCamera: AVCaptureDevice? {
+        cameraList.first(where: { $0.deviceType == .builtInWideAngleCamera }) ?? cameraList.first
+    }
+
+    private var selectedCamera: AVCaptureDevice? {
+        if cameraDevice == "default" { return preferredCamera }
+        return cameraList.first(where: { $0.uniqueID == cameraDevice }) ?? preferredCamera
+    }
+
+    private func refreshDevices() {
+        cameraList = SCContext.getCameras()
+        micList = SCContext.getMicrophone()
+        if cameraDevice != "default" && !cameraList.contains(where: { $0.uniqueID == cameraDevice }) {
+            cameraDevice = "default"
+        }
+        if micDevice != "default" && !micList.contains(where: { $0.localizedName == micDevice }) {
+            micDevice = "default"
+        }
+        if micList.isEmpty { recordMic = false }
+    }
+
+    private func refreshCameraState() {
+        cameraIsRunning = !SCContext.recordCam.isEmpty
+        if cameraIsRunning && !appDelegate.isPresenterON && !camWindow.isVisible && camWindow.contentView != nil {
+            camWindow.orderFrontRegardless()
         }
     }
 }

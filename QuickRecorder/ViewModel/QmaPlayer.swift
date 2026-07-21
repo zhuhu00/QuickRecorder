@@ -558,7 +558,7 @@ class AudioPlayerManager: ObservableObject {
         }
     }
     
-    func saveFile(_ url: URL, saveAsMP3: Bool = false) {
+    func saveFile(_ url: URL, saveAsMP3: Bool = false, deleteQMAAfterExport: Bool = false) {
         var url = url
         if url.pathExtension == "mp3" { url = url.deletingPathExtension() }
         if url.pathExtension != self.fileFormat { url = url.appendingPathExtension(self.fileFormat) }
@@ -617,12 +617,15 @@ class AudioPlayerManager: ObservableObject {
                             do {
                                 try await SCContext.m4a2mp3(inputUrl: oldURL, outputUrl: newURl)
                                 try? fd.removeItem(at: oldURL)
+                                self.deleteQMAPackageIfNeeded(deleteQMAAfterExport)
                             } catch {
                                 SCContext.showNotification(title: "Failed to save file".local, body: "\(error.localizedDescription)", id: "quickrecorder.error.\(UUID().uuidString)")
                                 return
                             }
                         }
                     }
+                } else {
+                    self.deleteQMAPackageIfNeeded(deleteQMAAfterExport)
                 }
                 
                 SCContext.showNotification(title: title, body: body, id: id)
@@ -631,6 +634,13 @@ class AudioPlayerManager: ObservableObject {
             }
             DispatchQueue.main.async { self.exporting = false }
         }
+    }
+
+    private func deleteQMAPackageIfNeeded(_ shouldDelete: Bool) {
+        guard shouldDelete,
+              let packageURL,
+              packageURL.pathExtension.lowercased() == "qma" else { return }
+        try? fd.removeItem(at: packageURL)
     }
     
     private func updateSysVol() {
@@ -674,5 +684,5 @@ class AudioPlayerManager: ObservableObject {
 }
 
 extension UTType {
-    static let qma = UTType(exportedAs: "com.lihaoyun6.QuickRecorder.qma")
+    static let qma = UTType(exportedAs: "io.github.zhuhu00.QuickRecorder.qma")
 }

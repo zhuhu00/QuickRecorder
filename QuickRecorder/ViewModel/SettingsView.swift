@@ -6,10 +6,40 @@
 //
 
 import SwiftUI
-import Sparkle
 import ServiceManagement
 import KeyboardShortcuts
 import MatrixColorSelector
+
+struct PreferencesButton: View {
+    var body: some View {
+        if #available(macOS 14, *) {
+            ModernPreferencesButton()
+        } else {
+            Button(action: {
+                closeMainWindow()
+                AppDelegate.shared.openSettingPanel()
+            }, label: {
+                SelectorView(title: "Preferences".local, symbol: "gearshape").cornerRadius(8)
+            })
+            .buttonStyle(.plain)
+        }
+    }
+}
+
+@available(macOS 14, *)
+private struct ModernPreferencesButton: View {
+    @Environment(\.openSettings) private var openSettings
+
+    var body: some View {
+        Button(action: {
+            closeMainWindow()
+            openSettings()
+        }, label: {
+            SelectorView(title: "Preferences".local, symbol: "gearshape").cornerRadius(8)
+        })
+        .buttonStyle(.plain)
+    }
+}
 
 struct SettingsView: View {
     @State private var selectedItem: String? = "General"
@@ -43,7 +73,7 @@ struct GeneralView: View {
     @AppStorage("countdown") private var countdown: Int = 0
     @AppStorage("poSafeDelay") private var poSafeDelay: Int = 1
     @AppStorage("showOnDock") private var showOnDock: Bool = true
-    @AppStorage("showMenubar") private var showMenubar: Bool = false
+    @AppStorage("showMenubar") private var showMenubar: Bool = true
     
     @State private var launchAtLogin = false
 
@@ -71,9 +101,7 @@ struct GeneralView: View {
                 SToggle("Show QuickRecorder on Menu Bar", isOn: $showMenubar)
                     //.disabled(!showOnDock)
             }
-            SGroupBox(label: "Update") { UpdaterSettingsView(updater: updaterController.updater) }
             VStack(spacing: 8) {
-                CheckForUpdatesView(updater: updaterController.updater)
                 if let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
                     Text("QuickRecorder v\(appVersion)")
                         .font(.subheadline)

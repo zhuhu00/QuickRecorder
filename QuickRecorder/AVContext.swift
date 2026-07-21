@@ -9,34 +9,61 @@ import Foundation
 import AVFoundation
 import UserNotifications
 
+private let cameraSessionQueue = DispatchQueue(
+    label: "io.github.zhuhu00.QuickRecorder.camera-session",
+    qos: .userInitiated
+)
+
+private func handleCameraSetupFailure(for session: AVCaptureSession) {
+    DispatchQueue.main.async {
+        guard SCContext.captureSession === session else { return }
+        print("Failed to set up camera")
+        SCContext.recordCam = ""
+        camWindow.orderOut(nil)
+        SCContext.requestCameraPermission()
+    }
+}
+
 extension AppDelegate {
     func recordingCamera(with device: AVCaptureDevice) {
-        SCContext.captureSession = AVCaptureSession()
-        
-        guard let input = try? AVCaptureDeviceInput(device: device),
-              SCContext.captureSession.canAddInput(input) else {
-            print("Failed to set up camera")
-            SCContext.requestCameraPermission()
-            return
+        let session = AVCaptureSession()
+        SCContext.captureSession = session
+        DispatchQueue.main.async {
+            guard SCContext.recordCam == device.localizedName else { return }
+            self.startCameraOverlayer()
         }
-        SCContext.captureSession.addInput(input)
-        
-        let videoOutput = AVCaptureVideoDataOutput()
-        videoOutput.setSampleBufferDelegate(self, queue: .global())
-        
-        if SCContext.captureSession.canAddOutput(videoOutput) {
-            SCContext.captureSession.addOutput(videoOutput)
+        cameraSessionQueue.async {
+            guard SCContext.captureSession === session,
+                  SCContext.recordCam == device.localizedName else { return }
+            guard let input = try? AVCaptureDeviceInput(device: device) else {
+                handleCameraSetupFailure(for: session)
+                return
+            }
+
+            session.beginConfiguration()
+            guard session.canAddInput(input) else {
+                session.commitConfiguration()
+                handleCameraSetupFailure(for: session)
+                return
+            }
+            session.addInput(input)
+
+            let videoOutput = AVCaptureVideoDataOutput()
+            videoOutput.setSampleBufferDelegate(self, queue: .global())
+            if session.canAddOutput(videoOutput) { session.addOutput(videoOutput) }
+            session.commitConfiguration()
+
+            guard SCContext.captureSession === session,
+                  SCContext.recordCam == device.localizedName else { return }
+            session.startRunning()
         }
-        
-        SCContext.captureSession.startRunning()
-        DispatchQueue.main.async { self.startCameraOverlayer() }
     }
     
     func closeCamera() {
-        if SCContext.isCameraRunning() {
-            //SCContext.previewType = nil
-            if camWindow.isVisible { camWindow.close() }
-            SCContext.captureSession.stopRunning()
+        if camWindow.isVisible { camWindow.orderOut(nil) }
+        guard let session = SCContext.captureSession else { return }
+        cameraSessionQueue.async {
+            if session.isRunning { session.stopRunning() }
         }
     }
     

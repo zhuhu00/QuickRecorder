@@ -7,6 +7,43 @@
 
 import SwiftUI
 
+private let statusBarPopover = NSPopover()
+
+private final class StatusBarActionTarget: NSObject {
+    static let shared = StatusBarActionTarget()
+
+    @objc func togglePopover(_ sender: NSStatusBarButton) {
+        if statusBarPopover.isShown {
+            statusBarPopover.performClose(nil)
+            return
+        }
+
+        let content: AnyView
+        if #available(macOS 13, *) {
+            content = AnyView(ContentViewNew())
+        } else {
+            content = AnyView(
+                ContentView(fromStatusBar: true)
+                    .onAppear {
+                        if isMacOS12 { NSApp.activate(ignoringOtherApps: true) }
+                    }
+            )
+        }
+
+        statusBarPopover.behavior = .transient
+        statusBarPopover.contentViewController = NSHostingController(rootView: content)
+        statusBarPopover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
+        DispatchQueue.main.async { restoreCameraOverlayerIfNeeded() }
+    }
+}
+
+private func restoreCameraOverlayerIfNeeded() {
+    guard !SCContext.recordCam.isEmpty,
+          !AppDelegate.shared.isPresenterON,
+          camWindow.contentView != nil else { return }
+    camWindow.orderFrontRegardless()
+}
+
 class PopoverState: ObservableObject {
     static let shared = PopoverState()
     @Published var isShowing: Bool = false
@@ -202,11 +239,11 @@ struct StatusBarItem: View {
                 .buttonStyle(.plain)
                 .popover(isPresented: $popoverState.isShowing, arrowEdge: .bottom) {
                     if #available(macOS 13, *) {
-                        ContentViewNew().onAppear{ closeAllWindow() }
+                        ContentViewNew().onAppear { restoreCameraOverlayerIfNeeded() }
                     } else {
                         ContentView(fromStatusBar: true)
-                            .onAppear{
-                                closeAllWindow()
+                            .onAppear {
+                                restoreCameraOverlayerIfNeeded()
                                 if isMacOS12 { NSApp.activate(ignoringOtherApps: true) }
                             }
                     }
@@ -225,15 +262,45 @@ struct StatusBarItem: View {
 func updateStatusBar() {
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
         if SCContext.streamType == nil && !ud.bool(forKey: "showMenubar") {
+            statusBarPopover.performClose(nil)
             statusBarItem.isVisible = false
             return
         }
         guard let button = statusBarItem.button else { return }
-        //let width = SCContext.streamType == nil ? 36 : ((SCContext.streamType == .idevice || SCContext.streamType == .systemaudio) ? 138 : 158)
+
+        button.subviews.forEach { $0.removeFromSuperview() }
+        button.image = nil
+        button.title = ""
+
+        if SCContext.streamType == nil {
+            statusBarItem.length = NSStatusItem.squareLength
+            let configuration = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium)
+            let image = NSImage(systemSymbolName: "record.circle", accessibilityDescription: "QuickRecorder")?
+                .withSymbolConfiguration(configuration)
+            image?.isTemplate = true
+            button.image = image
+            button.imagePosition = .imageOnly
+            button.target = StatusBarActionTarget.shared
+            button.action = #selector(StatusBarActionTarget.togglePopover(_:))
+            button.toolTip = "QuickRecorder"
+            button.setAccessibilityLabel("QuickRecorder")
+            statusBarItem.isVisible = true
+            return
+        }
+
+        statusBarPopover.performClose(nil)
+        button.target = nil
+        button.action = nil
+        statusBarItem.length = getStatusBarWidth()
         let iconView = NSHostingView(rootView: StatusBarItem().padding(.top, isMacOS14 ? -2 : -1))
-        iconView.frame = NSRect(x: 0, y: 1, width: getStatusBarWidth(), height: isMacOS14 ? 22 : 21)
-        button.subviews = [iconView]
-        button.frame = iconView.frame
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        button.addSubview(iconView)
+        NSLayoutConstraint.activate([
+            iconView.leadingAnchor.constraint(equalTo: button.leadingAnchor),
+            iconView.trailingAnchor.constraint(equalTo: button.trailingAnchor),
+            iconView.topAnchor.constraint(equalTo: button.topAnchor),
+            iconView.bottomAnchor.constraint(equalTo: button.bottomAnchor)
+        ])
         button.setAccessibilityLabel("QuickRecorder")
         statusBarItem.isVisible = true
     }

@@ -10,17 +10,27 @@ import AppKit
 import Foundation
 import AVFoundation
 
+private struct CameraOverlayClipShape: Shape {
+    let isCircular: Bool
+
+    func path(in rect: CGRect) -> Path {
+        isCircular ? Circle().path(in: rect) : Rectangle().path(in: rect)
+    }
+}
+
 extension AppDelegate {
     func startCameraOverlayer(size: NSSize = NSSize(width: 200, height: 200)){
         guard let screen = SCContext.getScreenWithMouse() else { return }
+        let shouldCenterWindow = camWindow.contentView == nil
+        camWindow.isOpaque = false
+        camWindow.contentAspectRatio = NSSize(width: 1, height: 1)
+        camWindow.contentMinSize = NSSize(width: 100, height: 100)
         camWindow.contentView = NSHostingView(rootView: SwiftCameraView(type: .camera))
-        let frame = NSRect(x: (screen.visibleFrame.width-size.width)/2+screen.frame.minX, y: (screen.visibleFrame.height-size.height)/2+screen.frame.minY, width: size.width, height: size.height)
-        camWindow.setFrame(frame, display: true)
-        //camWindow.setFrameOrigin(NSPoint(x: screen.visibleFrame.width/2-100, y: screen.visibleFrame.height/2-100))
-        camWindow.contentView?.wantsLayer = true
-        camWindow.contentView?.layer?.cornerRadius = 5
-        camWindow.contentView?.layer?.masksToBounds = true
-        camWindow.orderFront(self)
+        if shouldCenterWindow {
+            let frame = NSRect(x: (screen.visibleFrame.width-size.width)/2+screen.frame.minX, y: (screen.visibleFrame.height-size.height)/2+screen.frame.minY, width: size.width, height: size.height)
+            camWindow.setFrame(frame, display: true)
+        }
+        camWindow.orderFrontRegardless()
     }
 }
 
@@ -74,6 +84,10 @@ class CameraNSView: NSView {
     override func layout() {
         super.layout()
         previewLayer?.frame = bounds
+        if type == .camera {
+            layer?.cornerRadius = min(bounds.width, bounds.height) / 2
+            layer?.masksToBounds = true
+        }
     }
 }
 
@@ -114,7 +128,9 @@ struct SwiftCameraView: View {
                         }
                         .opacity(hover ? 0.8 : 0.2)
                         .onHover{ hovering in hover = hovering }
-                    }).buttonStyle(.plain).padding(10)
+                    })
+                    .buttonStyle(.plain)
+                    .padding(type == .camera ? 25 : 10)
                 }.frame(width: geometry.size.width, height: geometry.size.height)
                 if SCContext.streamType == .window {
                     Text("Unable to use camera overlayer when recording a single window!".local
@@ -123,6 +139,13 @@ struct SwiftCameraView: View {
                     .padding()
                     .colorInvert()
                     .background(.secondary)
+                }
+            }
+            .clipShape(CameraOverlayClipShape(isCircular: type == .camera))
+            .overlay {
+                if type == .camera {
+                    Circle()
+                        .strokeBorder(.white.opacity(0.75), lineWidth: 2)
                 }
             }
         }

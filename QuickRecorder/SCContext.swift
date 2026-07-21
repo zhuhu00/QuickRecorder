@@ -390,12 +390,9 @@ class SCContext {
         
         DispatchQueue.main.async {
             controlPanel.close()
-            if isCameraRunning() {
-                if camWindow.isVisible { camWindow.close() }
-                if deviceWindow.isVisible { deviceWindow.close() }
-                if let preview = previewSession { preview.stopRunning() }
-                if let capture = captureSession { capture.stopRunning() }
-            }
+            if deviceWindow.isVisible { deviceWindow.close() }
+            if let preview = previewSession, preview.isRunning { preview.stopRunning() }
+            AppDelegate.shared.closeCamera()
         }
         
         audioFile = nil // close audio file
@@ -431,7 +428,7 @@ class SCContext {
                         let exportMP3 = document.info.exportMP3
                         let format = exportMP3 ? "mp3" : document.info.format
                         let saveURL = fileURL.deletingPathExtension().appendingPathExtension(format)
-                        audioPlayerManager.saveFile(saveURL, saveAsMP3: exportMP3)
+                        audioPlayerManager.saveFile(saveURL, saveAsMP3: exportMP3, deleteQMAAfterExport: true)
                     }
                 } else {
                     if !ud.bool(forKey: "showPreview") {
