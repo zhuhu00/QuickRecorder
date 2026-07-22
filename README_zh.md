@@ -16,7 +16,7 @@
 
 ## 安装与使用
 ### 系统版本要求:
-- macOS 12.3 及更高版本  
+- 搭载 Apple 芯片（M 系列）的 Mac，运行 macOS 14.2 或更高版本
 
 ### 安装:
 可[点此前往](../../releases/latest)下载最新版安装文件. 或使用homebrew安装:  
@@ -29,7 +29,7 @@ brew install lihaoyun6/tap/quickrecorder
 - 使用 SwiftUI 编写, 体积小巧轻量化. 软件大小仅有不到 10MB, 无任何累赘功能. 
 
 - 支持整屏、区域和窗口录制；支持窗口声音内录、鼠标高亮、隐藏桌面文件等功能。
-- 完整支持 macOS 14 新增的 **[演讲者前置](https://support.apple.com/zh-cn/guide/facetime/fctm6333f4bd/mac)** 特性, 可在实时叠加摄像头画面 (低版本 macOS 可以使用悬浮窗模式).  
+- 在 macOS 14.2 或更高版本中支持 **[演讲者前置](https://support.apple.com/zh-cn/guide/facetime/fctm6333f4bd/mac)** 与摄像头画面叠加。
 - 支持 `HEVC with Alpha` 特性, 可在输出文件中包含 Alpha 通道 (目前仅 iMovie 与 FCPX 支持此特性)
 - 更多功能陆续开发中...  
 

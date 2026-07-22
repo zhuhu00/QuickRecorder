@@ -33,10 +33,10 @@
 
 当前代码可以在 Apple Silicon Mac 上生成原生 `arm64` 应用，不依赖 Rosetta。最近一次复查中，Release 构建与 Xcode 静态分析均成功，本地化资源和 `git diff --check` 也通过；但“能够构建”仍不等于“适合公开分发”。当前主要风险是：
 
-1. 系统版本声明、真实录制帧率和新版 macOS 能力判断仍需收敛。
+1. 真实录制帧率和新版 macOS 能力判断仍需收敛。
 2. 项目仍缺少自动化测试、干净 Mac 分发验证和完整 Fork 发布资料。
 
-`QR-001` 至 `QR-005`、`QR-014` 至 `QR-017` 均已完成对应验收，当前没有未完成的 P1。后续工作以 P2 稳定性和公开分发准备为主。
+`QR-001` 至 `QR-006`、`QR-014` 至 `QR-017` 均已完成对应验收，当前没有未完成的 P1。后续工作以 P2 稳定性和公开分发准备为主。
 
 ## 3. 问题总表
 
@@ -47,7 +47,7 @@
 | QR-003 | P1 | 已完成 | 录制停止 | SCStream 尚未完全停止，AVAssetWriter 已开始结束写入 |
 | QR-004 | P1 | 已完成 | 相机 | 删除 Mobile Device 后，电脑相机独占 Capture Session |
 | QR-005 | P1 | 已完成 | 错误处理 | 统一启动事务、失败回滚与外接麦克风断开降级已通过实机验证 |
-| QR-006 | P2 | 待处理 | 系统兼容 | 标称支持 macOS 12.3，但系统音频实际需要 macOS 13 |
+| QR-006 | P2 | 已完成 | 系统兼容 | 工程、README 与构建产物已统一为 Apple Silicon / macOS 14.2+ |
 | QR-007 | P2 | 进行中 | 视频配置 | 已修复无效 `CMTime`，等待 30/60 FPS 真实录制验证 |
 | QR-008 | P2 | 已移除 | 手机录制 | Mobile Device 功能已整体删除，错误通知路径不再存在 |
 | QR-009 | P2 | 已完成 | 麦克风 | 已改用稳定 `uniqueID`，指定输入录制与断连默认输入降级均通过实测 |
@@ -152,13 +152,15 @@
 ### QR-006：最低系统版本与核心功能不一致
 
 - 优先级：`P2`
-- 状态：`待处理`
+- 状态：`已完成`
 - 证据：
   - `README_zh.md:19`
   - `QuickRecorder/RecordEngine.swift:216`
   - `QuickRecorder/RecordEngine.swift:288`
 - 问题：项目和 README 标称支持 macOS 12.3，但 ScreenCaptureKit 的系统音频输出从 macOS 13 开始可用。macOS 12 用户可能可以启动应用，却无法使用核心系统声音录制。
-- 决策建议：首个 Fork 版本直接支持 `arm64 + macOS 14.2 及以上`，降低 Presenter Overlay、菜单栏捕获和权限差异带来的维护成本。
+- 产品决策：首个 Fork 版本只支持 `arm64 + macOS 14.2 及以上`，降低 Presenter Overlay、菜单栏捕获和权限差异带来的维护成本。
+- 当前实现：Project 与 App Target 的 Debug/Release `MACOSX_DEPLOYMENT_TARGET` 全部统一为 `14.2`；中英文 README 明确要求 M 系列 Mac 和 macOS 14.2，不再承诺 macOS 12/13 兼容模式。
+- 当前验证：Debug、Release 与 Analyze 成功；两份产物的 `LSMinimumSystemVersion` 都是 `14.2`，架构均为 `arm64`。Bundle ID、Team ID 和 Debug/Release entitlement 保持不变，固定路径 Debug App 已重新启动。
 - 验收标准：
   1. Xcode Deployment Target、README、Release 说明和运行时提示一致。
   2. 低于最低版本时系统阻止安装或给出明确说明，不展示不可用功能。
@@ -202,7 +204,7 @@
 - 状态：`待处理`
 - 当前基线：
   - 工程只有一个应用 Target，没有应用单元测试或 UI 测试 Target。
-  - 最近一次普通 `arm64 Release` 构建成功：8 条项目代码并发警告，另有 1 条无 AppIntents 依赖的元数据提示。
+  - 最低版本提升到 macOS 14.2 后，最近一次普通 `arm64 Release` 构建成功，并暴露 44 条项目代码警告（主要是旧 SwiftUI/AVFoundation API 弃用与既有并发提示），另有 1 条无 AppIntents 依赖的元数据提示。
   - 启用完整并发检查后共有 454 条警告，其中 175 处会在 Swift 6 模式下成为错误。
 - 修复方向：先为录制状态机、输出路径和设备选择抽出可测试逻辑；逐步隔离全局可变状态和 AppKit 主线程状态。
 - 验收标准：
@@ -336,11 +338,11 @@
 
 | 平台 | 支持策略 | 需要验证的重点 |
 | --- | --- | --- |
-| Apple Silicon / macOS 14.2 | 建议最低支持版本 | 屏幕、区域、窗口、系统音频、麦克风、相机叠加 |
+| Apple Silicon / macOS 14.2 | 最低支持版本 | 屏幕、区域、窗口、系统音频、麦克风、相机叠加 |
 | Apple Silicon / macOS 15 | 支持 | 权限、Continuity Camera、外接麦克风、Presenter Overlay |
 | Apple Silicon / macOS 26 | 支持 | 当前开发环境；回归 ScreenCaptureKit、状态栏、系统音频权限 |
-| Apple Silicon / macOS 13 | 暂不承诺，按需评估 | 核心系统音频可用，但缺少部分 14.2 功能 |
-| Apple Silicon / macOS 12.3 | 不建议支持 | ScreenCaptureKit 系统音频不可用 |
+| Apple Silicon / macOS 13 | 不支持 | 产物最低版本为 14.2 |
+| Apple Silicon / macOS 12.3 | 不支持 | 产物最低版本为 14.2，且 ScreenCaptureKit 系统音频不可用 |
 | Intel Mac | 不支持 | Release 不再构建 x86_64 |
 
 ## 6. 首发前人工回归清单
@@ -393,7 +395,7 @@
 
 以下顺序按风险优先；`QR-001` 至 `QR-004` 已完成，不再重复安排：
 
-1. `QR-006`、`QR-007`、`QR-013`：收敛最低系统版本、实际帧率和新版 macOS 能力判断。
+1. `QR-007`、`QR-013`：验证实际帧率并收敛新版 macOS 能力判断。
 2. `QR-010`：建立测试 Target 和 CI，覆盖开始、暂停、恢复、停止及失败状态机。
 3. `QR-011`、`QR-012`、`QR-018`：完成干净 Mac 验证、Fork 发布资料和低优先级 UI 生命周期清理。
 
@@ -401,6 +403,7 @@
 
 | 日期 | 变更 | 关联项 |
 | --- | --- | --- |
+| 2026-07-22 | Project、App Target、中英文 README 与构建产物统一为 Apple Silicon / macOS 14.2+；Debug、Release、Analyze、签名和固定调试版启动验证通过 | QR-006 |
 | 2026-07-22 | 用户确认指定 XIBERIA 录音和录制中断连默认输入降级均正常，QR-009 标记完成 | QR-009 |
 | 2026-07-22 | 麦克风选择、持久化与采集查找改用 `AVCaptureDevice.uniqueID`；加入旧名称迁移和同名显示区分，本机 XIBERIA 设置迁移及全套构建检查通过，等待真实录制与断连回归 | QR-009 |
 | 2026-07-22 | 用户确认 AppDelegate 单实例版本的菜单栏、相机和录制入口均正常，QR-016 标记完成 | QR-016 |
