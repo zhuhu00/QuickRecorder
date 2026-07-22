@@ -89,7 +89,21 @@ extension Scene {
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOutput, AVCaptureVideoDataOutputSampleBufferDelegate  {
-    static let shared = AppDelegate()
+    private static weak var adaptedInstance: AppDelegate?
+
+    static var shared: AppDelegate {
+        guard let delegate = adaptedInstance else {
+            preconditionFailure("AppDelegate is unavailable before application launch")
+        }
+        return delegate
+    }
+
+    override init() {
+        super.init()
+        precondition(Self.adaptedInstance == nil, "AppDelegate must have a single adapted instance")
+        Self.adaptedInstance = self
+    }
+
     var filter: SCContentFilter?
     var isCameraReady = false
     var isPresenterON = false
@@ -324,6 +338,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
     }
     
     func applicationDidFinishLaunching(_ aNotification: Notification) {
+        assert(self === AppDelegate.shared)
         closeAllWindow()
         if showOnDock { _ = applicationShouldHandleReopen(NSApp, hasVisibleWindows: true) }
         tips("Would you like to use H.265 format for better video quality and smaller file size?",

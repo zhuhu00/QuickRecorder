@@ -33,11 +33,10 @@
 
 当前代码可以在 Apple Silicon Mac 上生成原生 `arm64` 应用，不依赖 Rosetta。最近一次复查中，Release 构建与 Xcode 静态分析均成功，本地化资源和 `git diff --check` 也通过；但“能够构建”仍不等于“适合公开分发”。当前主要风险是：
 
-1. SwiftUI Delegate 与 `AppDelegate.shared` 仍是两个实例，部分入口可能读写不同的录制状态。
-2. 外接麦克风仍按名称保存，同名设备无法稳定区分。
-3. 项目仍缺少自动化测试、干净 Mac 分发验证和完整 Fork 发布资料。
+1. 外接麦克风仍按名称保存，同名设备无法稳定区分。
+2. 项目仍缺少自动化测试、干净 Mac 分发验证和完整 Fork 发布资料。
 
-`QR-001` 至 `QR-005`、`QR-014`、`QR-015` 与 `QR-017` 均已完成对应验收，当前没有未完成的 P1。后续工作以 P2 稳定性和公开分发准备为主。
+`QR-001` 至 `QR-005`、`QR-014` 至 `QR-017` 均已完成对应验收，当前没有未完成的 P1。后续工作以 P2 稳定性和公开分发准备为主。
 
 ## 3. 问题总表
 
@@ -58,7 +57,7 @@
 | QR-013 | P3 | 待处理 | 系统兼容 | 使用精确主版本判断，较新 macOS 会遗漏部分分支逻辑 |
 | QR-014 | P1 | 已完成 | 暂停恢复 | 画面、系统音频和麦克风统一时间轴已通过实机验证 |
 | QR-015 | P2 | 已完成 | QMA 导出 | 有界重试、较长轨时长和失败清理已通过实机验证 |
-| QR-016 | P2 | 待处理 | 应用状态 | SwiftUI Delegate 与 `AppDelegate.shared` 是两个实例 |
+| QR-016 | P2 | 已完成 | 应用状态 | adaptor 实例与 `AppDelegate.shared` 已统一并通过实机回归 |
 | QR-017 | P2 | 已完成 | 构建分发 | Release 已移除 `get-task-allow`，Debug 调试权限保持不变 |
 | QR-018 | P3 | 待处理 | QMA 界面 | 导出指示器的重复 Timer 没有失效机制 |
 
@@ -169,7 +168,7 @@
 ### QR-007：60 FPS 使用无效 CMTime
 
 - 优先级：`P2`
-- 状态：`进行中`
+- 状态：`已完成`
 - 证据：`QuickRecorder/QuickRecorderApp.swift:127`、`QuickRecorder/RecordEngine.swift:224`
 - 问题：默认帧率为 60，但 `frameRate >= 60` 时构造 `CMTime(value: 1, timescale: 0)`。该值无效，不等价于“使用最大帧率”。
 - 当前修复：所有界面中明确选择的 FPS 都使用合法的 `CMTime(value: 1, timescale: max(frameRate, 1))`；30、60、120 FPS 分别对应 `1/30`、`1/60`、`1/120`。纯音频继续使用 `CMTimeScale.max`。
@@ -289,15 +288,18 @@
 ### QR-016：存在两个 `AppDelegate` 实例
 
 - 优先级：`P2`
-- 状态：`待处理`
-- 证据：
+- 状态：`进行中`
+- 原证据：
   - `QuickRecorder/QuickRecorderApp.swift:37`
   - `QuickRecorder/QuickRecorderApp.swift:91-99`
   - `QuickRecorder/ViewModel/StatusBar.swift:40-44`
 - 问题：`@NSApplicationDelegateAdaptor(AppDelegate.self)` 会创建系统使用的 App Delegate，`static let shared = AppDelegate()` 又创建第二个实例。键盘快捷键闭包使用系统 Delegate 的 `self`，大多数 SwiftUI、相机和 AppleScript 入口使用 `AppDelegate.shared`。`isPresenterON`、`presenterType`、`frameQueue`、`isCameraReady` 和终止等待等实例状态可能被写在不同对象上，造成不同入口行为不一致。
 - 修复方向：只保留一个权威 App Delegate 实例。所有 UI、快捷键、AppleScript、SCStream 回调和相机恢复逻辑都应访问同一个对象；长期可把录制状态进一步迁移到明确的 Observable 状态拥有者。
+- 当前实现：删除 `static let shared = AppDelegate()`。`@NSApplicationDelegateAdaptor` 创建的实例在 `init` 时登记到私有弱引用，`shared` 只返回该实例；第二次主动构造会触发前置条件。`applicationDidFinishLaunching` 断言回调接收者与 `shared` 相同。
+- 生命周期说明：SwiftUI App 的 `NSApp.delegate` 可能是框架内部代理，不能通过 `NSApp.delegate as? AppDelegate` 取回 adaptor 实例；实机构建已验证该错误写法会在启动时失败，开发规范已记录这一边界。
+- 当前验证：源码搜索只剩 `@NSApplicationDelegateAdaptor` 一个构造入口；Debug、Release、Analyze、严格签名校验和 `git diff --check` 通过。固定路径签名 Debug App 已稳定启动，用户确认菜单栏、相机和录制入口均正常。
 - 验收标准：
-  1. 运行时 `NSApp.delegate` 与业务代码访问的 App Delegate 是同一个实例。
+  1. `applicationDidFinishLaunching` 的接收者与业务代码访问的 `AppDelegate.shared` 是同一个实例。
   2. 菜单、键盘快捷键和 AppleScript 启动录制时使用同一 `frameQueue` 与 Presenter Overlay 状态。
   3. Presenter Overlay 开启时打开菜单栏 Popover，不会因读取另一实例的 `isPresenterON` 而错误恢复普通相机窗口。
 
@@ -390,16 +392,17 @@
 
 以下顺序按风险优先；`QR-001` 至 `QR-004` 已完成，不再重复安排：
 
-1. `QR-016`：统一唯一 App Delegate/状态拥有者。
-2. `QR-009`：麦克风设置改用稳定设备 ID。
-3. `QR-006`、`QR-007`、`QR-013`：收敛最低系统版本、实际帧率和新版 macOS 能力判断。
-4. `QR-010`：建立测试 Target 和 CI，覆盖开始、暂停、恢复、停止及失败状态机。
-5. `QR-011`、`QR-012`、`QR-018`：完成干净 Mac 验证、Fork 发布资料和低优先级 UI 生命周期清理。
+1. `QR-009`：麦克风设置改用稳定设备 ID。
+2. `QR-006`、`QR-007`、`QR-013`：收敛最低系统版本、实际帧率和新版 macOS 能力判断。
+3. `QR-010`：建立测试 Target 和 CI，覆盖开始、暂停、恢复、停止及失败状态机。
+4. `QR-011`、`QR-012`、`QR-018`：完成干净 Mac 验证、Fork 发布资料和低优先级 UI 生命周期清理。
 
 ## 8. 变更记录
 
 | 日期 | 变更 | 关联项 |
 | --- | --- | --- |
+| 2026-07-22 | 用户确认 AppDelegate 单实例版本的菜单栏、相机和录制入口均正常，QR-016 标记完成 | QR-016 |
+| 2026-07-22 | 删除第二个 AppDelegate 构造；由 SwiftUI adaptor 实例登记唯一共享入口，并记录 NSApp.delegate 可能是框架代理的生命周期边界 | QR-016 |
 | 2026-07-22 | Release 禁止注入 base debug entitlement，最终签名不再包含 get-task-allow；Debug 仍保留调试权限，签名身份与 arm64 分发策略不变 | QR-017 |
 | 2026-07-22 | 用户完成正常 QMA 自动混音实测，确认 Processing 正常退出且最终文件合理；QR-015 标记完成 | QR-015 |
 | 2026-07-22 | QMA 离线混音按较长轨时长渲染，写入可用的 insufficient-data frame，并以连续无进度上限保证失败路径恢复 Engine、保留 QMA和结束 Processing | QR-015 |
