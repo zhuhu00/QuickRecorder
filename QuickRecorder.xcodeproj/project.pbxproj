@@ -9,6 +9,8 @@
 /* Begin PBXBuildFile section */
 		A10000000000000000000001 /* RecordingLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000003 /* RecordingLifecycle.swift */; };
 		A10000000000000000000002 /* RecordingLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000004 /* RecordingLifecycleTests.swift */; };
+		A20000000000000000000001 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* LICENSE */; };
+		A20000000000000000000002 /* THIRD_PARTY_NOTICES.md in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* THIRD_PARTY_NOTICES.md */; };
 		1821F2E82CF4B226004A2EC0 /* ContentViewNew.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1821F2E72CF4B226004A2EC0 /* ContentViewNew.swift */; };
 		184506CE2C69213400AFDA45 /* MatrixColorSelector in Frameworks */ = {isa = PBXBuildFile; productRef = 184506CD2C69213400AFDA45 /* MatrixColorSelector */; };
 		184CAEC72BDCCC2300D61D57 /* AVContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 184CAEC62BDCCC2300D61D57 /* AVContext.swift */; };
@@ -60,6 +62,8 @@
 		A10000000000000000000003 /* RecordingLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingLifecycle.swift; sourceTree = "<group>"; };
 		A10000000000000000000004 /* RecordingLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingLifecycleTests.swift; sourceTree = "<group>"; };
 		A10000000000000000000005 /* QuickRecorderTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = QuickRecorderTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000003 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
+		A20000000000000000000004 /* THIRD_PARTY_NOTICES.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = THIRD_PARTY_NOTICES.md; sourceTree = "<group>"; };
 		1821F2E72CF4B226004A2EC0 /* ContentViewNew.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentViewNew.swift; sourceTree = "<group>"; };
 		184CAEC62BDCCC2300D61D57 /* AVContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVContext.swift; sourceTree = "<group>"; };
 		184CAEC82BDDEC6800D61D57 /* AppBlockSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppBlockSelector.swift; sourceTree = "<group>"; };
@@ -148,6 +152,8 @@
 		18D3BDDE2BCE5DC1006CFFC0 = {
 			isa = PBXGroup;
 			children = (
+				A20000000000000000000003 /* LICENSE */,
+				A20000000000000000000004 /* THIRD_PARTY_NOTICES.md */,
 				18D3BDE92BCE5DC1006CFFC0 /* QuickRecorder */,
 				A10000000000000000000006 /* QuickRecorderTests */,
 				18D3BDE82BCE5DC1006CFFC0 /* Products */,
@@ -327,6 +333,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A20000000000000000000001 /* LICENSE in Resources */,
+				A20000000000000000000002 /* THIRD_PARTY_NOTICES.md in Resources */,
 				18D3BDF22BCE5DC2006CFFC0 /* Preview Assets.xcassets in Resources */,
 				18D3BDFB2BCE5DF5006CFFC0 /* Localizable.strings in Resources */,
 				18A551FC2D0749C3008FC5F6 /* Scriptable.sdef in Resources */,
@@ -589,7 +597,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 169;
+				CURRENT_PROJECT_VERSION = 170;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"QuickRecorder/Preview Content\"";
 				DEVELOPMENT_TEAM = H7W4RZVP64;
@@ -607,7 +615,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.2;
-				MARKETING_VERSION = 1.6.9;
+				MARKETING_VERSION = 1.7.0;
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.zhuhu00.QuickRecorder;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -627,7 +635,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 169;
+				CURRENT_PROJECT_VERSION = 170;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"QuickRecorder/Preview Content\"";
 				DEVELOPMENT_TEAM = H7W4RZVP64;
@@ -645,7 +653,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.2;
-				MARKETING_VERSION = 1.6.9;
+				MARKETING_VERSION = 1.7.0;
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.zhuhu00.QuickRecorder;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";

@@ -52,8 +52,8 @@
 | QR-008 | P2 | 已移除 | 手机录制 | Mobile Device 功能已整体删除，错误通知路径不再存在 |
 | QR-009 | P2 | 已完成 | 麦克风 | 已改用稳定 `uniqueID`，指定输入录制与断连默认输入降级均通过实测 |
 | QR-010 | P2 | 已完成 | 工程质量 | 已建立生命周期测试 Target、arm64 CI 和完整并发诊断基线 |
-| QR-011 | P2 | 进行中 | 构建分发 | Release 已限定 arm64 并使用开发签名，等待干净 Mac 手动放行验证 |
-| QR-012 | P3 | 待处理 | 开源发布 | README、版本、AGPL 和第三方依赖声明尚未按 Fork 发布整理 |
+| QR-011 | P2 | 本机完成 | 构建分发 | Release 构建、验签与交付流程已固化，只剩干净 M 系列 Mac 外部验收 |
+| QR-012 | P3 | 已完成 | 开源发布 | Fork 身份、版本、README、AGPL、第三方声明与源码对应策略已整理 |
 | QR-013 | P3 | 已完成 | 系统兼容 | 已删除精确主版本判断和不可达分支，并迁移旧 SwiftUI/AVFoundation/截图 API |
 | QR-014 | P1 | 已完成 | 暂停恢复 | 画面、系统音频和麦克风统一时间轴已通过实机验证 |
 | QR-015 | P2 | 已完成 | QMA 导出 | 有界重试、较长轨时长和失败清理已通过实机验证 |
@@ -223,6 +223,8 @@
   - Hardened Runtime 已启用；摄像头、麦克风和屏幕录制用途说明已配置。
 - 分发决策：不购买 Developer ID，采用熟人之间的非正式分发。接收者第一次运行时先在“隐私与安全性”中选择“仍要打开”，再授予屏幕与系统音频录制、麦克风和相机权限。
 - 当前验证：Release 构建成功；`lipo` 只返回 `arm64`；签名为 `Apple Development`，Team ID 为 `H7W4RZVP64`。`spctl` 拒绝该 App 是非 Developer ID 签名的预期结果。当前证书有效至 2027-07-21，产物没有嵌入 provisioning profile。
+- 当前交付实现：新增 `docs/distribution.md` 与 `scripts/verify-release.sh`，固定 Release 构建、Tag/版本对应、手动放行、权限授权、证书到期说明和干净 Mac 验收步骤。脚本已对 `1.7.0 (170)` Release 验证纯 arm64、macOS 14.2、Bundle/Team、Apple Development、Hardened Runtime、Release entitlement、许可证资源和预期 Gatekeeper 拒绝，全部通过。
+- 外部边界：当前机器安装了维护者证书，不能替代“未安装开发证书的 M 系列 Mac”验收。该项不再有待修源码；首次公开二进制仍必须按分发文档完成外部人工检查，未完成时标记为测试版。
 - 验收标准：
   1. Release 产物为原生 arm64，不依赖 Rosetta。
   2. Bundle ID、Team ID 和签名身份稳定，升级后权限行为可预测。
@@ -234,8 +236,11 @@
 ### QR-012：Fork 发布资料和许可证声明待整理
 
 - 优先级：`P3`
-- 状态：`待处理`
+- 状态：`已完成`
 - 问题：README 仍包含上游主页、下载和 Homebrew 信息；当前 Fork 没有独立版本策略、更新渠道和完整第三方声明。Sparkle 已移除，因此后续更新需要手动分发。
+- 当前实现：中英文 README 已切换到 `zhuhu00/QuickRecorder` 的仓库、Releases 与 Issues 语义，删除上游 Homebrew、主页、捐赠和 Application 录制宣传，同时保留原作者和上游归属。首个 Fork 版本设置为 `1.7.0 (170)`，后续采用语义版本、单调构建号和同名源码 Tag；更新渠道明确为手动下载。
+- 许可证实现：根 AGPL-3.0 保持不变；新增 `THIRD_PARTY_NOTICES.md`，记录 KeyboardShortcuts、AECAudioStream、MatrixColorSelector、SwiftLAME/LAME 的锁定 revision、许可证、版权和对应源码。根 `LICENSE` 与第三方声明已加入 App 的 Copy Bundle Resources，Release 验证确认二者存在。
+- 当前验证：Fork/上游 remote 已区分，App 内四种本地化 Credits 均指向 Fork 源码；Release `CFBundleShortVersionString=1.7.0`、`CFBundleVersion=170`；README 不再包含上游下载、Homebrew 或捐赠入口；`Package.resolved` 未变化。
 - 发布要求：
   1. 保留原项目版权、AGPL-3.0 和无担保声明。
   2. 明确说明 Fork 修改内容和日期。
@@ -396,14 +401,15 @@
 
 以下顺序按风险优先；`QR-001` 至 `QR-004` 已完成，不再重复安排：
 
-1. `QR-007`、`QR-013`：验证实际帧率并收敛新版 macOS 能力判断。
-2. `QR-010`：建立测试 Target 和 CI，覆盖开始、暂停、恢复、停止及失败状态机。
-3. `QR-011`、`QR-012`、`QR-018`：完成干净 Mac 验证、Fork 发布资料和低优先级 UI 生命周期清理。
+1. 代码审查发现的 P1/P2/P3 源码与工程项均已处理。
+2. 首次公开二进制前，按 `docs/distribution.md` 在未安装维护者证书的 M 系列 Mac 上完成唯一剩余的外部验收。
 
 ## 8. 变更记录
 
 | 日期 | 变更 | 关联项 |
 | --- | --- | --- |
+| 2026-07-22 | Fork README、版本 `1.7.0 (170)`、AGPL/第三方声明、App 内源码链接、Release 验签脚本与手动分发说明完成；本机 Release 全项通过，只保留干净 Mac 外部验收 | QR-011、QR-012 |
+| 2026-07-22 | 完成两轮 30/60 FPS 高动态实录与 `ffprobe` 帧数/容器检查，确认合法采集上限和 60 FPS 档的有效提升 | QR-007 |
 | 2026-07-22 | 新增生产态 RecordingLifecycle、5 个 XCTest、共享测试 Scheme 与 arm64 GitHub Actions；CI 同时运行测试和 complete concurrency 诊断 | QR-010 |
 | 2026-07-22 | QMA 导出指示器移除无失效机制的 50 ms 重复 Timer，改用随视图生命周期启停的 SwiftUI 动画 | QR-018 |
 | 2026-07-22 | 删除精确系统版本与不可达兼容分支，迁移 SwiftUI、AVFoundation 和截图 API；普通 Debug/Release 项目警告由 44 条降至 0 | QR-013、QR-010 |

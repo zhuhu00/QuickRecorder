@@ -1,59 +1,71 @@
-#
+# QuickRecorder
+
 <p align="center">
-<img src="./QuickRecorder/Assets.xcassets/AppIcon.appiconset/icon_128x128@2x.png" width="200" height="200" />
-<h1 align="center">QuickRecorder</h1>
-<h3 align="center">A lightweight and high-performance screen recorder for macOS<br><a href="./README_zh.md">[中文版本]</a><br><a href="https://lihaoyun6.github.io/quickrecorder/">[Landing Page]</a>
+  <img src="./QuickRecorder/Assets.xcassets/AppIcon.appiconset/icon_128x128@2x.png" width="200" height="200" alt="QuickRecorder icon" />
 </p>
 
-## Screenshot
+QuickRecorder is a macOS recorder built with SwiftUI, ScreenCaptureKit, and AVFoundation. It records displays, areas, windows, system audio, and microphones, and can burn a draggable circular camera overlay into the final screen recording.
+
+[中文说明](./README_zh.md)
+
+## Fork status
+
+This community fork is maintained by [zhuhu00](https://github.com/zhuhu00). Its source is at [zhuhu00/QuickRecorder](https://github.com/zhuhu00/QuickRecorder), with reports tracked in the fork's [Issues](https://github.com/zhuhu00/QuickRecorder/issues). Modifications began in July 2026 from [lihaoyun6/QuickRecorder](https://github.com/lihaoyun6/QuickRecorder); upstream authorship and attribution are retained.
+
+Major fork changes include:
+
+- Menubar access and device-selectable camera and microphone controls.
+- A draggable, always-on-top circular camera overlay captured in the final recording.
+- Removal of Application and Mobile Device recording, retaining display, area, and window capture.
+- Recording lifecycle, pause/resume, microphone fallback, QMA export, and device identity fixes.
+- A focused support target of Apple Silicon and macOS 14.2 or later.
+
+## Installation
+
+When binaries are published, download them from this fork's [Releases](https://github.com/zhuhu00/QuickRecorder/releases). This fork does not use the upstream Homebrew tap and has no automatic updater.
+
+Published builds use a free Apple Development signature, not Developer ID, and are not notarized. Recipients do not need Xcode or a developer account, but the first launch requires these manual steps:
+
+1. Try to open QuickRecorder once.
+2. Open System Settings → Privacy & Security and choose Open Anyway.
+3. Grant Screen & System Audio Recording, Microphone, and Camera access as needed.
+4. Restart QuickRecorder after granting access.
+
+See the [distribution guide](./docs/distribution.md) for reproducible build, signature, and delivery checks.
+
+## Run from source
+
+1. Install Xcode, clone this repository, and open `QuickRecorder.xcodeproj`.
+2. Select your Personal Team under Signing & Capabilities for the QuickRecorder target. A free Apple Account is sufficient for local debugging.
+3. Select `My Mac` and run. Grant recording permissions when macOS asks.
+
+## Requirements
+
+- Apple Silicon Mac.
+- macOS 14.2 or later.
+
+## Features
+
+- Full-display, area, and single- or multi-window recording.
+- Driver-free system audio capture through ScreenCaptureKit; BlackHole is not required.
+- Simultaneous system audio and microphone recording, with optional separate tracks.
+- Default or explicit microphone selection, with fallback to the system default if an external input disconnects.
+- Built-in, external, and Continuity Camera selection with draggable, resizable, and mirrored circular preview.
+- Cursor capture, mouse highlighting, screen magnifier, desktop-item hiding, and Presenter Overlay.
+- MP4/MOV, H.264/H.265, HEVC with Alpha, and multiple audio formats.
+
+## Screenshots
+
 <p align="center">
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="./img/preview_en_dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="./img/preview_en.png">
-  <img alt="QuickRecorder Screenshots" src="./img/preview_en.png" width="840"/>
-</picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./img/preview_en_dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="./img/preview_en.png">
+    <img alt="QuickRecorder screenshots" src="./img/preview_en.png" width="840" />
+  </picture>
 </p>
 
-## Installation and Usage
-### System Requirements:
-- Apple Silicon Mac with macOS 14.2 or later
+## License and acknowledgements
 
-### Install:
-Download the latest installation file [here](../../releases/latest) or install via Homebrew:
+QuickRecorder is distributed under the [GNU AGPL-3.0](./LICENSE), without warranty. A modified source or binary release must provide the exact corresponding source and retain upstream and third-party copyright and license notices. See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
 
-```bash
-brew install lihaoyun6/tap/quickrecorder
-```
-
-### Features/Usage:
-- You can use QuickRecorder to record your screens / windows / applications... etc.
-
-- QuickRecorder supports driver-free audio loopback recording, mouse highlighting, screen magnifier and many more useful features.  
-- QuickRecorder supports **"[Presenter Overlay](https://support.apple.com/guide/facetime/presenter-overlay-video-conferencing-fctm6333f4bd/mac)"** and camera overlays on macOS 14.2 or later.
-- QuickRecorder is able to record `HEVC with Alpha` video format, that can contain alpha channel in the output file *(currently only iMovie and FCPX support this feature)*  
-
-## Q&A
-**1. Where can I reopen the main panel after closing it?**
-> Click the Dock tile or Menubar icon of QuickRecorder to reopen the main panel at any time.
-
-**2. Why does QuickRecorder not a sandbox app?**
-> QuickRecorder has no plans to be uploaded to the App Store, so it does not need to be designed as a sandbox app.  
-
-**3. How to independently control the volume of system sound and sound from microphone in other video editor?**
-> QuickRecorder will merge the audio input from the microphone to the main audio track after recording by default. If you need to edit the video, you can turn off the `Record Microphone to Main Track` option in the settings panel. After turning off, the system sound and sound from microphone will be recorded into two audio tracks and can be edited independently.  
-
-## Donate
-<img src="./img/donate.png" width="350"/>
-
-## Thanks
-[Azayaka](https://github.com/Mnpn/Azayaka) @Mnpn
-> The source of inspiration and part of the code of the screen recording engine comes from the Azayaka project, and I am also one of the code contributors to this project
-
-[KeyboardShortcuts](https://github.com/sindresorhus/KeyboardShortcuts) @sindresorhus  
-> QuickRecorder uses this swift library to handle shortcut key events  
-
-[SwiftLAME](https://github.com/hidden-spectrum/SwiftLAME) @Hidden Spectrum
-> QuickRecorder uses this swift library to handle MP3 output
-
-[ChatGPT](https://chat.openai.com) @OpenAI
-> Note: Part of the code in this project was generated or refactored using ChatGPT.
+Thanks to original author [lihaoyun6](https://github.com/lihaoyun6), [Azayaka](https://github.com/Mnpn/Azayaka), and the contributors to KeyboardShortcuts, AECAudioStream, MatrixColorSelector, SwiftLAME, and LAME.
