@@ -13,7 +13,6 @@ import ScreenCaptureKit
 import UserNotifications
 import KeyboardShortcuts
 import ServiceManagement
-import CoreMediaIO
 
 let isMacOS12 = ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 12
 let isMacOS14 = ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 14
@@ -30,7 +29,6 @@ let updateTimer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect(
 let mousePointer = NSWindow(contentRect: NSRect(x: -70, y: -70, width: 70, height: 70), styleMask: [.borderless], backing: .buffered, defer: false)
 let screenMagnifier = NSWindow(contentRect: NSRect(x: -402, y: -402, width: 402, height: 348), styleMask: [.borderless], backing: .buffered, defer: false)
 let camWindow = NSPanel(contentRect: NSRect(x: 200, y: 200, width: 200, height: 200), styleMask: [.fullSizeContentView, .resizable, .nonactivatingPanel], backing: .buffered, defer: false)
-let deviceWindow = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 200, height: 200), styleMask: [.fullSizeContentView, .resizable], backing: .buffered, defer: false)
 let controlPanel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10), styleMask: [.fullSizeContentView], backing: .buffered, defer: false)
 let countdownPanel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 120, height: 120), styleMask: [.fullSizeContentView], backing: .buffered, defer: false)
 let previewWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 266, height: 156), styleMask: [.fullSizeContentView], backing: .buffered, defer: false)
@@ -98,6 +96,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
     var isResizing = false
     var presenterType = "OFF"
     var frameQueue = FixedLengthArray<CMTime>(maxLength: 20)
+    private var isWaitingForTermination = false
     
     @AppStorage("showOnDock")       var showOnDock: Bool = true
     @AppStorage("showMenubar")      var showMenubar: Bool = true
@@ -171,8 +170,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
         if let monitor = mouseMonitor { NSEvent.removeMonitor(monitor); mouseMonitor = nil }
     }
     
-    func applicationWillTerminate(_ aNotification: Notification) {
-        if SCContext.stream != nil { SCContext.stopRecording() }
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard SCContext.streamType != nil else { return .terminateNow }
+        guard !isWaitingForTermination else { return .terminateLater }
+
+        isWaitingForTermination = true
+        SCContext.stopRecording {
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
     
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -238,15 +244,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
             if let error = error { print("Notification authorization denied: \(error.localizedDescription)") }
         }
         
-        var allow : UInt32 = 1
-        let dataSize : UInt32 = 4
-        let zero : UInt32 = 0
-        var prop = CMIOObjectPropertyAddress(
-            mSelector: CMIOObjectPropertySelector(kCMIOHardwarePropertyAllowScreenCaptureDevices),
-            mScope: CMIOObjectPropertyScope(kCMIOObjectPropertyScopeGlobal),
-            mElement: CMIOObjectPropertyElement(kCMIOObjectPropertyElementMain))
-        CMIOObjectSetPropertyData(CMIOObjectID(kCMIOObjectSystemObject), &prop, zero, nil, dataSize, &allow)
-
         statusBarItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusBarItem.button?.image = NSImage()
 
@@ -275,12 +272,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
         countdownPanel.isReleasedWhenClosed = false
         countdownPanel.isMovableByWindowBackground = false
         countdownPanel.backgroundColor = NSColor.clear
-        
-        deviceWindow.title = "iDevice Overlayer".local
-        deviceWindow.level = .floating
-        deviceWindow.isReleasedWhenClosed = false
-        deviceWindow.isMovableByWindowBackground = true
-        deviceWindow.backgroundColor = NSColor.clear
         
         controlPanel.title = "Recording Controller".local
         controlPanel.level = .floating
@@ -398,10 +389,12 @@ func closeMainWindow() {
 }
 
 func closeAllWindow(except: String = "") {
+    let shouldKeepCamera = !SCContext.recordCam.isEmpty
     for w in NSApp.windows.filter({
         $0.title != "Item-0" && $0.title != ""
         && !$0.title.lowercased().contains(".qma")
-        && !$0.title.contains(except) }) { w.close() }
+        && !$0.title.contains(except)
+        && !(shouldKeepCamera && $0 === camWindow) }) { w.close() }
 }
 
 func findNSSplitVIew(view: NSView?) -> NSSplitView? {
@@ -421,7 +414,6 @@ func getStatusBarWidth() -> CGFloat {
     var width = 158.0
     switch SCContext.streamType {
     case nil: width = miniStatusBar ? 36.0 : 36.0
-    case .idevice: width = miniStatusBar ? 68.0 : 138.0
     case .systemaudio: width = miniStatusBar ? 68.0 : 114.0
     default: width = miniStatusBar ? 78.0 : 158.0
     }
@@ -639,6 +631,6 @@ enum ColSpace: String { case delault, srgb, p3, bt709, bt2020 }
 
 enum Encoder: String { case h264, h265 }
 
-enum StreamType: Int { case screen, window, windows, application, screenarea, systemaudio, idevice, camera }
+enum StreamType: Int { case screen, window, windows, application, screenarea, systemaudio }
 
 enum BackgroundType: String { case wallpaper, clear, black, white, red, green, yellow, orange, gray, blue, custom }

@@ -12,7 +12,6 @@
 "Application" = "录制应用程序";
 "Window" = "录制窗口内容";
 "Camera" = "摄像头";
-"Mobile Device" = "录制移动设备";
 "Preferences" = "偏好设置";
 "No Title" = "无标题";
 "Display " = "显示器";
@@ -121,12 +120,7 @@
 "Open video trimmer after recording" = "录制结束后自动打开修剪器";
 "Unable to use camera overlayer when recording a single window!" = "录制单个窗口时无法使用摄像头浮窗!";
 " Please use \"Presenter Overlay\"" = " 请使用\"演讲者前置\"功能";
-"No Devices Found!" = "未找到任何设备";
 "No Cameras Found!" = "未找到任何摄像头";
-"Please unlock!" = "请解锁屏幕!";
-"If you are on a call, enable \"Mute\"" = "如需通话时录屏请启用\"静音\"";
-"Preset" = "预设";
-"Mute" = "静音";
 "Default" = "系统默认";
 "Pixel Format" = "像素格式";
 "Color Space" = "色彩空间";
@@ -134,7 +128,6 @@
 "Update Settings" = "更新设置";
 "Automatically check for updates" = "自动检查程序更新";
 "Automatically download updates" = "自动下载程序更新";
-"Connect your device via USB" = "请通过 USB 连接您的设备";
 "Show QuickRecorder on Dock" = "在程序坞中显示 QuickRecorder";
 "Show QuickRecorder on Menu Bar" = "在菜单栏中显示 QuickRecorder";
 "Icon Settings" = "图标设置";
@@ -211,7 +204,7 @@
 "Use H.265" = "使用 H.265";
 "Continue with H.264" = "继续使用 H.264";
 "Would you like to use H.265 format for better video quality and smaller file size?" = "是否使用 H.265 编码格式以获得\n更好的录像画质和更小的文件体积?";
-"QuickRecorder needs this permission to record your camera or mobile device." = "QuickRecorder 需要使用此权限以录制来自摄像头或移动设备的画面.";
+"QuickRecorder needs this permission to record your camera." = "QuickRecorder 需要使用此权限录制摄像头画面。";
 "Select Window Directly" = "直接点选窗口";
 
 // Please don't translate the following warning strings, it will make it difficult for me to read the logs

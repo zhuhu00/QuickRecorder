@@ -15,7 +15,6 @@ struct ContentView: View {
     @State private var xmarkGlowing = false
     @State private var infoGlowing = false
     @State private var micGlowing = false
-    @State private var isPopoverShowing = false
     @State private var isPopoverShowing2 = false
     @State private var micList = SCContext.getMicrophone()
     @AppStorage("enableAEC") private var enableAEC: Bool = false
@@ -208,16 +207,6 @@ struct ContentView: View {
                     .popover(isPresented: $isPopoverShowing2, arrowEdge: .bottom) {
                         CameraPopoverView(closePopover: { isPopoverShowing2 = false })
                     }*/
-                    Divider().frame(height: 70)
-                    Button(action: {
-                        isPopoverShowing = true
-                    }, label: {
-                        SelectorView(title: "Mobile Device".local, symbol: "apps.ipad").cornerRadius(8)
-                    })
-                    .buttonStyle(.plain)
-                    .popover(isPresented: $isPopoverShowing, arrowEdge: .bottom) {
-                        iDevicePopoverView(closePopover: { isPopoverShowing = false })
-                    }
                     Divider().frame(height: 70)
                     PreferencesButton()
                     if fromStatusBar || (!showOnDock && !showMenubar) {

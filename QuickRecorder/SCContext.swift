@@ -19,9 +19,7 @@ class SCContext {
     static var firstFrame: CMSampleBuffer?
     static var autoStop = 0
     static var recordCam = ""
-    static var recordDevice = ""
     static var captureSession: AVCaptureSession!
-    static var previewSession: AVCaptureSession!
     static var frameCache: CMSampleBuffer?
     static var filter: SCContentFilter?
     static var isMagnifierEnabled = false
@@ -49,6 +47,12 @@ class SCContext {
     static var window: [SCWindow]?
     static var application: [SCRunningApplication]?
     static var streamType: StreamType?
+    static let streamOutputQueue = DispatchQueue(
+        label: "io.github.zhuhu00.QuickRecorder.stream-output",
+        qos: .userInitiated
+    )
+    private(set) static var isStopping = false
+    private static var stopCompletions = [() -> Void]()
     static var availableContent: SCShareableContent?
     static let excludedApps = ["", "com.apple.dock", "com.apple.screencaptureui", "com.apple.controlcenter", "com.apple.notificationcenterui", "com.apple.systemuiserver", "com.apple.WindowManager", "dev.mnpn.Azayaka", "com.gaosun.eul", "com.pointum.hazeover", "net.matthewpalmer.Vanilla", "com.dwarvesv.minimalbar", "com.bjango.istatmenus.status"]
     
@@ -116,7 +120,6 @@ class SCContext {
             && title != "Mouse Pointer".local
             && title != "Screen Magnifier".local
             && title != "Camera Overlayer".local
-            && title != "iDevice Overlayer".local
         })
     }
     
@@ -261,7 +264,7 @@ class SCContext {
         case .denied:
             DispatchQueue.main.async {
                 let alert = createAlert(title: "Permission Required",
-                                                           message: "QuickRecorder needs this permission to record your camera or mobile device.",
+                                                           message: "QuickRecorder needs this permission to record your camera.",
                                                            button1: "Open Settings",
                                                            button2: "Cancel")
                 if alert.runModal() == .alertFirstButtonReturn {
@@ -310,14 +313,11 @@ class SCContext {
     }
     
     static func isCameraRunning() -> Bool {
-        var preview = false
-        var capture = false
-        if let session = previewSession { preview = session.isRunning }
-        if let session = captureSession { capture = session.isRunning }
-        return (preview || capture)
+        return captureSession?.isRunning ?? false
     }
     
     static func pauseRecording() {
+        guard !isStopping else { return }
         isPaused.toggle()
         PopoverState.shared.isPaused = isPaused
         if !isPaused {
@@ -325,152 +325,345 @@ class SCContext {
             startTime = Date.now.addingTimeInterval(-1) - SCContext.timePassed
         }
     }
-    
-    static func stopRecording() {
-        if ud.bool(forKey: "preventSleep") { SleepPreventer.shared.allowSleep() }
-        autoStop = 0
-        lastPTS = nil
-        recordCam = ""
-        recordDevice = ""
-        isMagnifierEnabled = false
-        mousePointer.orderOut(nil)
-        screenMagnifier.orderOut(nil)
-        AppDelegate.shared.stopGlobalMouseMonitor()
 
-        if let w = NSApp.windows.first(where:  { $0.title == "Area Overlayer".local }) { w.close() }
-        
-        if stream != nil { stream.stopCapture() }
-        stream = nil
-        if ud.bool(forKey: "recordMic") {
-            micInput.markAsFinished()
-            AudioRecorder.shared.stop()
-            audioEngine.inputNode.removeTap(onBus: 0)
-            audioEngine.stop()
-            //DispatchQueue.global().async { try? audioEngine.inputNode.setVoiceProcessingEnabled(false) }
-            if ud.bool(forKey: "enableAEC") { try? AECEngine.stopAudioUnit() }
-        }
-        if streamType != .systemaudio {
-            let dispatchGroup = DispatchGroup()
-            dispatchGroup.enter()
-            vwInput.markAsFinished()
-            if #available(macOS 13, *) { awInput.markAsFinished() }
-            vW.finishWriting {
-                if vW.status != .completed {
-                    print("Video writing failed with status: \(vW.status), error: \(String(describing: vW.error))")
-                    let err = vW.error?.localizedDescription ?? "Unknow Error"
-                    showNotification(title: "Failed to save file".local, body: "\(err)", id: "quickrecorder.error.\(UUID().uuidString)")
-                } else {
-                    if ud.bool(forKey: "recordMic") && ud.bool(forKey: "recordWinSound") && ud.bool(forKey: "remuxAudio") {
-                        mixAudioTracks(videoURL: filePath.url) { result in
-                            switch result {
-                            case .success(let url):
-                                print("Exported video to \(String(describing: url.path))")
-                                if !ud.bool(forKey: "showPreview") {
-                                    showNotification(title: "Recording Completed".local, body: String(format: "File saved to: %@".local, url.path), id: "quickrecorder.completed.\(UUID().uuidString)")
-                                }
-                                DispatchQueue.main.async {
-                                    if ud.bool(forKey: "trimAfterRecord") {
-                                        AppDelegate.shared.createNewWindow(view: VideoTrimmerView(videoURL: url), title: url.lastPathComponent, only: false)
-                                    } else {
-                                        showPreview(path: url.path)
-                                    }
-                                }
-                            case .failure(let error):
-                                print("Failed to export video: \(error.localizedDescription)")
-                            }
+    private static func finishSystemAudioRecording(
+        outputPath: String,
+        systemAudioPath: String,
+        audioFormat: String,
+        recordedMicrophone: Bool,
+        shouldRemuxAudio: Bool,
+        shouldShowPreview: Bool,
+        completion: @escaping () -> Void
+    ) {
+        if audioFormat == AudioFormat.mp3.rawValue && !recordedMicrophone {
+            Task {
+                let outputURL = (String(outputPath.dropLast(4)) + ".mp3").url
+                do {
+                    try await m4a2mp3(inputUrl: systemAudioPath.url, outputUrl: outputURL)
+                    try? fd.removeItem(atPath: systemAudioPath)
+                    if !shouldShowPreview {
+                        let title = "Recording Completed".local
+                        let body = String(format: "File saved to: %@".local, outputURL.path.removingPercentEncoding!)
+                        let id = "quickrecorder.completed.\(UUID().uuidString)"
+                        showNotification(title: title, body: body, id: id)
+                        completion()
+                    } else {
+                        DispatchQueue.main.async {
+                            showPreview(path: outputURL.path, image: NSImage(named: "audioIcon"))
+                            completion()
                         }
                     }
+                } catch {
+                    showNotification(title: "Failed to save file".local, body: "\(error.localizedDescription)", id: "quickrecorder.error.\(UUID().uuidString)")
+                    completion()
                 }
-                dispatchGroup.leave()
             }
-            dispatchGroup.wait()
-        } else {
-            if ud.bool(forKey: "recordMic") { vW.finishWriting {} }
+            return
         }
-        
-        DispatchQueue.main.async {
-            controlPanel.close()
-            if deviceWindow.isVisible { deviceWindow.close() }
-            if let preview = previewSession, preview.isRunning { preview.stopRunning() }
-            AppDelegate.shared.closeCamera()
-        }
-        
-        audioFile = nil // close audio file
-        audioFile2 = nil // close audio file2
-        if streamType == .systemaudio {
-            if ud.string(forKey: "audioFormat") == AudioFormat.mp3.rawValue && !ud.bool(forKey: "recordMic") {
-                Task {
-                    let outPutUrl = (String(filePath.dropLast(4)) + ".mp3").url
-                    do {
-                        try await m4a2mp3(inputUrl: filePath1.url, outputUrl: outPutUrl)
-                        try? fd.removeItem(atPath: filePath1)
-                        if !ud.bool(forKey: "showPreview") {
-                            let title = "Recording Completed".local
-                            let body = String(format: "File saved to: %@".local, outPutUrl.path.removingPercentEncoding!)
-                            let id = "quickrecorder.completed.\(UUID().uuidString)"
-                            showNotification(title: title, body: body, id: id)
-                        } else {
-                            DispatchQueue.main.async { showPreview(path: outPutUrl.path, image: NSImage(named: "audioIcon")) }
-                        }
-                    } catch {
-                        showNotification(title: "Failed to save file".local, body: "\(error.localizedDescription)", id: "quickrecorder.error.\(UUID().uuidString)")
-                    }
-                }
-            } else {
-                if ud.bool(forKey: "remuxAudio") && ud.bool(forKey: "recordMic") {
-                    let fileURL = filePath.url
-                    let document = try? qmaPackageHandle.load(from: fileURL)
-                    if let document = document {
+
+        if shouldRemuxAudio && recordedMicrophone {
+            let packageURL = outputPath.url
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let document = try qmaPackageHandle.load(from: packageURL)
+                    DispatchQueue.main.async {
                         let audioPlayerManager = AudioPlayerManager()
-                        audioPlayerManager.loadAudioFiles(format: document.info.format, package: fileURL, encoder: document.info.encoder, saveMP3: document.info.exportMP3)
+                        audioPlayerManager.loadAudioFiles(
+                            format: document.info.format,
+                            package: packageURL,
+                            encoder: document.info.encoder,
+                            saveMP3: document.info.exportMP3
+                        )
                         audioPlayerManager.sysVol = document.info.sysVol
                         audioPlayerManager.micVol = document.info.micVol
                         let exportMP3 = document.info.exportMP3
                         let format = exportMP3 ? "mp3" : document.info.format
-                        let saveURL = fileURL.deletingPathExtension().appendingPathExtension(format)
-                        audioPlayerManager.saveFile(saveURL, saveAsMP3: exportMP3, deleteQMAAfterExport: true)
+                        let saveURL = packageURL.deletingPathExtension().appendingPathExtension(format)
+                        audioPlayerManager.saveFile(
+                            saveURL,
+                            saveAsMP3: exportMP3,
+                            deleteQMAAfterExport: true,
+                            completion: completion
+                        )
                     }
-                } else {
-                    if !ud.bool(forKey: "showPreview") {
-                        let title = "Recording Completed".local
-                        let body = String(format: "File saved to: %@".local, filePath)
-                        let id = "quickrecorder.completed.\(UUID().uuidString)"
-                        showNotification(title: title, body: body, id: id)
-                    } else {
-                        showPreview(path: filePath, image: NSImage(named: "qmaIcon"))
-                    }
+                } catch {
+                    showNotification(title: "Failed to save file".local, body: "\(error.localizedDescription)", id: "quickrecorder.error.\(UUID().uuidString)")
+                    completion()
                 }
             }
+            return
         }
-        
-        isPaused = false
-        hideMousePointer = false
-        window = nil
-        screen = nil
-        startTime = nil
-        AppDelegate.shared.presenterType = "OFF"
+
+        if !shouldShowPreview {
+            let title = "Recording Completed".local
+            let body = String(format: "File saved to: %@".local, outputPath)
+            let id = "quickrecorder.completed.\(UUID().uuidString)"
+            showNotification(title: title, body: body, id: id)
+            completion()
+        } else {
+            DispatchQueue.main.async {
+                showPreview(path: outputPath, image: NSImage(named: "qmaIcon"))
+                completion()
+            }
+        }
+    }
+
+    private static func reportMicrophoneWriterFailure(_ writer: AVAssetWriter?) {
+        let error = writer?.error?.localizedDescription ?? "Unknown Error".local
+        print("Microphone writing failed with status: \(String(describing: writer?.status)), error: \(error)")
+        showNotification(title: "Failed to save file".local, body: error, id: "quickrecorder.error.\(UUID().uuidString)")
+    }
+
+    private struct RecordingStopContext {
+        let stream: SCStream?
+        let streamType: StreamType
+        let writer: AVAssetWriter?
+        let videoInput: AVAssetWriterInput?
+        let systemAudioInput: AVAssetWriterInput?
+        let microphoneInput: AVAssetWriterInput?
+        let outputPath: String?
+        let systemAudioPath: String?
+        let recordedMicrophone: Bool
+        let microphoneDevice: String
+        let enableAEC: Bool
+        let recordWindowSound: Bool
+        let shouldRemuxAudio: Bool
+        let shouldShowPreview: Bool
+        let shouldTrimVideo: Bool
+        let audioFormat: String
+        let videoFormat: String
+    }
+
+    static func stopRecording(streamError: Error? = nil, completion: (() -> Void)? = nil) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async {
+                stopRecording(streamError: streamError, completion: completion)
+            }
+            return
+        }
+
+        guard let stoppedStreamType = streamType else {
+            completion?()
+            return
+        }
+        if let completion { stopCompletions.append(completion) }
+        guard !isStopping else {
+            if let streamError {
+                print("Stream stopped while recording was already finalizing: \(streamError.localizedDescription)")
+            }
+            return
+        }
+
+        isStopping = true
+        autoStop = 0
+        if ud.bool(forKey: "preventSleep") { SleepPreventer.shared.allowSleep() }
+        AppDelegate.shared.stopGlobalMouseMonitor()
         updateStatusBar()
-        
-        if !(ud.bool(forKey: "recordMic") && ud.bool(forKey: "recordWinSound") && ud.bool(forKey: "remuxAudio")) && streamType != .systemaudio {
-            if let vW = vW {
-                if vW.status != .completed {
-                    streamType = nil
-                    return
-                }
+
+        let context = RecordingStopContext(
+            stream: stream,
+            streamType: stoppedStreamType,
+            writer: vW,
+            videoInput: vwInput,
+            systemAudioInput: awInput,
+            microphoneInput: micInput,
+            outputPath: filePath,
+            systemAudioPath: filePath1,
+            recordedMicrophone: ud.bool(forKey: "recordMic"),
+            microphoneDevice: ud.string(forKey: "micDevice") ?? "default",
+            enableAEC: ud.bool(forKey: "enableAEC"),
+            recordWindowSound: ud.bool(forKey: "recordWinSound"),
+            shouldRemuxAudio: ud.bool(forKey: "remuxAudio"),
+            shouldShowPreview: ud.bool(forKey: "showPreview"),
+            shouldTrimVideo: ud.bool(forKey: "trimAfterRecord"),
+            audioFormat: ud.string(forKey: "audioFormat") ?? AudioFormat.aac.rawValue,
+            videoFormat: ud.string(forKey: "videoFormat") ?? VideoFormat.mp4.rawValue
+        )
+
+        let drainStreamOutput: (Error?) -> Void = { stopError in
+            streamOutputQueue.async {
+                finalizeCapture(context, streamError: stopError)
             }
-            if !ud.bool(forKey: "showPreview") {
-                let title = "Recording Completed".local
-                let body = String(format: "File saved to: %@".local, filePath)
-                let id = "quickrecorder.completed.\(UUID().uuidString)"
-                showNotification(title: title, body: body, id: id)
-            } else {
-                showPreview(path: filePath)
-            }
-            trimVideo()
         }
-        
-        streamType = nil
-        firstFrame = nil
+
+        if let streamError {
+            drainStreamOutput(streamError)
+        } else if let activeStream = context.stream {
+            activeStream.stopCapture { stopError in
+                drainStreamOutput(stopError)
+            }
+        } else {
+            drainStreamOutput(nil)
+        }
+    }
+
+    private static func finalizeCapture(_ context: RecordingStopContext, streamError: Error?) {
+        if let streamError {
+            print("Screen capture stopped with error: \(streamError.localizedDescription)")
+        }
+
+        if context.recordedMicrophone {
+            if context.microphoneDevice == "default" {
+                if context.enableAEC {
+                    try? AECEngine.stopAudioUnit()
+                } else {
+                    audioEngine.inputNode.removeTap(onBus: 0)
+                    audioEngine.stop()
+                }
+            } else {
+                AudioRecorder.shared.stopAndDrain()
+            }
+            context.microphoneInput?.markAsFinished()
+        }
+
+        audioFile = nil
+        audioFile2 = nil
+        cleanupCaptureUI()
+
+        if context.streamType == .systemaudio {
+            finalizeSystemAudioRecording(context)
+        } else {
+            finalizeVideoRecording(context)
+        }
+    }
+
+    private static func cleanupCaptureUI() {
+        DispatchQueue.main.async {
+            recordCam = ""
+            isMagnifierEnabled = false
+            mousePointer.orderOut(nil)
+            screenMagnifier.orderOut(nil)
+            if let window = NSApp.windows.first(where: { $0.title == "Area Overlayer".local }) {
+                window.close()
+            }
+            AppDelegate.shared.closeCamera()
+        }
+    }
+
+    private static func finalizeSystemAudioRecording(_ context: RecordingStopContext) {
+        guard let outputPath = context.outputPath,
+              let systemAudioPath = context.systemAudioPath else {
+            showNotification(title: "Failed to save file".local, body: "Unknown Error".local, id: "quickrecorder.error.\(UUID().uuidString)")
+            completeRecordingLifecycle()
+            return
+        }
+
+        let processOutput = {
+            finishSystemAudioRecording(
+                outputPath: outputPath,
+                systemAudioPath: systemAudioPath,
+                audioFormat: context.audioFormat,
+                recordedMicrophone: context.recordedMicrophone,
+                shouldRemuxAudio: context.shouldRemuxAudio,
+                shouldShowPreview: context.shouldShowPreview,
+                completion: completeRecordingLifecycle
+            )
+        }
+
+        guard context.recordedMicrophone else {
+            processOutput()
+            return
+        }
+        guard let writer = context.writer else {
+            reportMicrophoneWriterFailure(nil)
+            completeRecordingLifecycle()
+            return
+        }
+
+        writer.finishWriting {
+            guard writer.status == .completed else {
+                reportMicrophoneWriterFailure(writer)
+                completeRecordingLifecycle()
+                return
+            }
+            processOutput()
+        }
+    }
+
+    private static func finalizeVideoRecording(_ context: RecordingStopContext) {
+        context.videoInput?.markAsFinished()
+        if #available(macOS 13, *) { context.systemAudioInput?.markAsFinished() }
+
+        guard let writer = context.writer,
+              let outputPath = context.outputPath else {
+            showNotification(title: "Failed to save file".local, body: "Unknown Error".local, id: "quickrecorder.error.\(UUID().uuidString)")
+            completeRecordingLifecycle()
+            return
+        }
+
+        writer.finishWriting {
+            guard writer.status == .completed else {
+                let error = writer.error?.localizedDescription ?? "Unknown Error".local
+                print("Video writing failed with status: \(writer.status), error: \(error)")
+                showNotification(title: "Failed to save file".local, body: error, id: "quickrecorder.error.\(UUID().uuidString)")
+                completeRecordingLifecycle()
+                return
+            }
+
+            let outputURL = outputPath.url
+            if context.recordedMicrophone && context.recordWindowSound && context.shouldRemuxAudio {
+                mixAudioTracks(videoURL: outputURL, videoFormat: context.videoFormat) { result in
+                    switch result {
+                    case .success(let url):
+                        print("Exported video to \(url.path)")
+                        presentVideoOutput(url, context: context)
+                    case .failure(let error):
+                        print("Failed to export video: \(error.localizedDescription)")
+                        showNotification(title: "Failed to save file".local, body: error.localizedDescription, id: "quickrecorder.error.\(UUID().uuidString)")
+                        completeRecordingLifecycle()
+                    }
+                }
+            } else {
+                presentVideoOutput(outputURL, context: context)
+            }
+        }
+    }
+
+    private static func presentVideoOutput(_ outputURL: URL, context: RecordingStopContext) {
+        DispatchQueue.main.async {
+            if !context.shouldShowPreview {
+                showNotification(
+                    title: "Recording Completed".local,
+                    body: String(format: "File saved to: %@".local, outputURL.path),
+                    id: "quickrecorder.completed.\(UUID().uuidString)"
+                )
+            }
+            if context.shouldTrimVideo {
+                AppDelegate.shared.createNewWindow(
+                    view: VideoTrimmerView(videoURL: outputURL),
+                    title: outputURL.lastPathComponent,
+                    only: false
+                )
+            } else if context.shouldShowPreview {
+                showPreview(path: outputURL.path)
+            }
+            completeRecordingLifecycle()
+        }
+    }
+
+    private static func completeRecordingLifecycle() {
+        DispatchQueue.main.async {
+            isPaused = false
+            isResume = false
+            hideMousePointer = false
+            hideScreenMagnifier = false
+            lastPTS = nil
+            window = nil
+            screen = nil
+            application = nil
+            startTime = nil
+            stream = nil
+            streamType = nil
+            firstFrame = nil
+            AppDelegate.shared.presenterType = "OFF"
+            controlPanel.close()
+            isStopping = false
+            updateStatusBar()
+
+            let completions = stopCompletions
+            stopCompletions.removeAll()
+            completions.forEach { $0() }
+        }
     }
     
     static func showPreview(path: String, image: NSImage? = nil) {
@@ -523,11 +716,6 @@ class SCContext {
             discoverySession = AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInMicrophone, .externalUnknown], mediaType: .audio, position: .unspecified)
         }
         return discoverySession.devices.filter({ !$0.localizedName.contains("CADefaultDeviceAggregate") })
-    }
-    
-    static func getiDevice() -> [AVCaptureDevice] {
-        let discoverySession = AVCaptureDevice.DiscoverySession(deviceTypes: [.externalUnknown], mediaType: .muxed, position: .unspecified)
-        return discoverySession.devices
     }
     
     static func getCurrentMic() -> AVCaptureDevice? {
@@ -708,7 +896,7 @@ class SCContext {
         }
     }
     
-    static func mixAudioTracks(videoURL: URL, completion: @escaping (Result<URL, Error>) -> Void) {
+    static func mixAudioTracks(videoURL: URL, videoFormat: String? = nil, completion: @escaping (Result<URL, Error>) -> Void) {
         showNotification(title: "Still Processing".local, body: "Mixing audio track...".local, id: "quickrecorder.processing.\(UUID().uuidString)")
         
         let asset = AVAsset(url: videoURL)
@@ -716,7 +904,7 @@ class SCContext {
         let outputURL = audioOutputURL.deletingPathExtension()
         let audioOnlyComposition = AVMutableComposition()
         
-        let fileEnding = ud.string(forKey: "videoFormat") ?? ""
+        let fileEnding = videoFormat ?? ud.string(forKey: "videoFormat") ?? ""
         var fileType: AVFileType?
         switch fileEnding {
         case VideoFormat.mov.rawValue: fileType = AVFileType.mov
@@ -813,7 +1001,7 @@ class SCContext {
                     switch exportSession.status {
                     case .completed:
                         let  fileManager = fd
-                        try? fileManager.removeItem(atPath: filePath)
+                        try? fileManager.removeItem(at: videoURL)
                         try? fileManager.removeItem(atPath: audioOutputURL.path)
                         completion(.success(outputURL))
                     case .failed:

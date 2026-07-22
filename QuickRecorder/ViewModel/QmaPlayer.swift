@@ -9,6 +9,37 @@ import Foundation
 import AVFoundation
 import SwiftUI
 
+private struct ActivityIndicator: View {
+    @State private var currentDegrees = 0.0
+
+    private let colorGradient = LinearGradient(
+        gradient: Gradient(colors: [
+            .secondary,
+            .secondary.opacity(0.75),
+            .secondary.opacity(0.5),
+            .secondary.opacity(0.2),
+            .clear
+        ]),
+        startPoint: .leading,
+        endPoint: .trailing
+    )
+
+    var body: some View {
+        Circle()
+            .trim(from: 0.0, to: 0.85)
+            .stroke(colorGradient, style: StrokeStyle(lineWidth: 3))
+            .frame(width: 18, height: 18)
+            .rotationEffect(Angle(degrees: currentDegrees))
+            .onAppear {
+                Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
+                    withAnimation {
+                        currentDegrees += 10
+                    }
+                }
+            }
+    }
+}
+
 struct qmaPlayerView: View {
     @Binding var document: qmaPackageHandle
     @State var fileURL: URL
@@ -558,7 +589,12 @@ class AudioPlayerManager: ObservableObject {
         }
     }
     
-    func saveFile(_ url: URL, saveAsMP3: Bool = false, deleteQMAAfterExport: Bool = false) {
+    func saveFile(
+        _ url: URL,
+        saveAsMP3: Bool = false,
+        deleteQMAAfterExport: Bool = false,
+        completion: (() -> Void)? = nil
+    ) {
         var url = url
         if url.pathExtension == "mp3" { url = url.deletingPathExtension() }
         if url.pathExtension != self.fileFormat { url = url.appendingPathExtension(self.fileFormat) }
@@ -568,13 +604,15 @@ class AudioPlayerManager: ObservableObject {
         Thread.detachNewThread {
             DispatchQueue.main.async { self.exporting = true }
             do {
-                guard let audioFile1 = self.audioFile1, let audioFile2 = self.audioFile2 else { return }
+                guard let audioFile1 = self.audioFile1, let audioFile2 = self.audioFile2 else {
+                    throw CocoaError(.fileReadCorruptFile)
+                }
                 self.playerNode1.scheduleFile(audioFile1, at: nil, completionHandler: nil)
                 self.playerNode2.scheduleFile(audioFile2, at: nil, completionHandler: nil)
                 
                 let audioSettings = SCContext.updateAudioSettings(format: self.fileEncoder)
                 let outputFormat = self.playerNode1.outputFormat(forBus: 0)
-                let outputFile = try AVAudioFile(forWriting: url, settings: audioSettings, commonFormat: .pcmFormatFloat32, interleaved: false)
+                var outputFile: AVAudioFile? = try AVAudioFile(forWriting: url, settings: audioSettings, commonFormat: .pcmFormatFloat32, interleaved: false)
                 self.engine.stop()
                 try self.engine.enableManualRenderingMode(.offline, format: outputFormat, maximumFrameCount: 4096)
                 try self.engine.start()
@@ -590,7 +628,7 @@ class AudioPlayerManager: ObservableObject {
                     let status = try self.engine.renderOffline(framesToRender, to: buffer)
                     switch status {
                     case .success:
-                        try outputFile.write(from: buffer)
+                        try outputFile?.write(from: buffer)
                     case .insufficientDataFromInputNode, .cannotDoInCurrentContext:
                         // Handle the cases where rendering cannot proceed
                         break
@@ -603,6 +641,7 @@ class AudioPlayerManager: ObservableObject {
                 self.engine.disableManualRenderingMode()
                 self.engine.stop()
                 self.setupAudioEngine()
+                outputFile = nil
                 
                 let title = "Recording Completed".local
                 var body = String(format: "File saved to: %@".local, url.path.removingPercentEncoding!)
@@ -612,18 +651,19 @@ class AudioPlayerManager: ObservableObject {
                     let oldURL = url
                     let newURl = url.deletingLastPathComponent().appendingPathComponent(lastComp).deletingPathExtension().appendingPathExtension("mp3")
                     body = String(format: "File saved to: %@".local, newURl.path.removingPercentEncoding!)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                        Task {
-                            do {
-                                try await SCContext.m4a2mp3(inputUrl: oldURL, outputUrl: newURl)
-                                try? fd.removeItem(at: oldURL)
-                                self.deleteQMAPackageIfNeeded(deleteQMAAfterExport)
-                            } catch {
-                                SCContext.showNotification(title: "Failed to save file".local, body: "\(error.localizedDescription)", id: "quickrecorder.error.\(UUID().uuidString)")
-                                return
-                            }
+                    Task {
+                        do {
+                            try await SCContext.m4a2mp3(inputUrl: oldURL, outputUrl: newURl)
+                            try? fd.removeItem(at: oldURL)
+                            self.deleteQMAPackageIfNeeded(deleteQMAAfterExport)
+                            SCContext.showNotification(title: title, body: body, id: id)
+                        } catch {
+                            SCContext.showNotification(title: "Failed to save file".local, body: "\(error.localizedDescription)", id: "quickrecorder.error.\(UUID().uuidString)")
                         }
+                        self.finishExporting()
+                        completion?()
                     }
+                    return
                 } else {
                     self.deleteQMAPackageIfNeeded(deleteQMAAfterExport)
                 }
@@ -632,8 +672,13 @@ class AudioPlayerManager: ObservableObject {
             } catch {
                 SCContext.showNotification(title: "Failed to save file".local, body: "\(error.localizedDescription)", id: "quickrecorder.error.\(UUID().uuidString)")
             }
-            DispatchQueue.main.async { self.exporting = false }
+            self.finishExporting()
+            completion?()
         }
+    }
+
+    private func finishExporting() {
+        DispatchQueue.main.async { self.exporting = false }
     }
 
     private func deleteQMAPackageIfNeeded(_ shouldDelete: Bool) {

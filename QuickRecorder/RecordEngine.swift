@@ -220,8 +220,8 @@ extension AppDelegate {
         }
         
 
-        //  conf.minimumFrameInterval = CMTime(value: 1, timescale: audioOnly ? CMTimeScale.max : CMTimeScale(frameRate))
-         conf.minimumFrameInterval = CMTime(value: 1, timescale: audioOnly ? CMTimeScale.max : (frameRate >= 60 ? 0 : CMTimeScale(frameRate)))
+        let frameIntervalScale = audioOnly ? CMTimeScale.max : CMTimeScale(max(frameRate, 1))
+        conf.minimumFrameInterval = CMTime(value: 1, timescale: frameIntervalScale)
 
 //        CMTimeScale is the denominator in the fraction
 //        conf.minimumFrameInterval = CMTime(seconds: audioOnly ? Double(CMTimeScale.max) : Double(1)/Double(frameRate), preferredTimescale: 10000)
@@ -234,9 +234,9 @@ extension AppDelegate {
         //https://github.com/nonstrict-hq/ScreenCaptureKit-Recording-example
 
         // https://developer.apple.com/documentation/screencapturekit/scstreamconfiguration/minimumframeinterval
-        //minimumFrameInterval: Use this value to throttle the rate at which you receive updates. The default value is 0, which indicates that the system uses the maximum supported frame rate.
+        // minimumFrameInterval throttles delivery to the frame rate selected in the UI.
 
-        print("Frame interval passed to ScreenCaptureKit. (timescale is FPS. 0 means no throttling): \(conf.minimumFrameInterval)")
+        print("Frame interval passed to ScreenCaptureKit. (timescale is FPS): \(conf.minimumFrameInterval)")
         
 
         if SCContext.streamType == .screenarea {
@@ -284,8 +284,10 @@ extension AppDelegate {
         
         SCContext.stream = SCStream(filter: filter, configuration: conf, delegate: self)
         do {
-            try SCContext.stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: .global())
-            if #available(macOS 13, *) { try SCContext.stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: .global()) }
+            try SCContext.stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: SCContext.streamOutputQueue)
+            if #available(macOS 13, *) {
+                try SCContext.stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: SCContext.streamOutputQueue)
+            }
             if !audioOnly {
                 initVideo(conf: conf)
             } else {
@@ -625,8 +627,7 @@ extension AppDelegate {
         print("closing stream with error:\n".local, error,
               "\nthis might be due to the window closing or the user stopping from the sonoma ui".local)
         DispatchQueue.main.async {
-            SCContext.stream = nil
-            SCContext.stopRecording()
+            SCContext.stopRecording(streamError: error)
         }
     }
 }
@@ -636,6 +637,7 @@ class AudioRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private var captureSession: AVCaptureSession!
     private var audioInput: AVCaptureDeviceInput!
     private var audioDataOutput: AVCaptureAudioDataOutput!
+    private let audioQueue = DispatchQueue(label: "io.github.zhuhu00.QuickRecorder.microphone-output")
 
     func setupAudioCapture() {
         captureSession = AVCaptureSession()
@@ -664,7 +666,6 @@ class AudioRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
 
         // Create audio data output
         audioDataOutput = AVCaptureAudioDataOutput()
-        let audioQueue = DispatchQueue(label: "audioQueue")
         audioDataOutput.setSampleBufferDelegate(self, queue: audioQueue)
         
         // Add audio data output to capture session
@@ -682,10 +683,11 @@ class AudioRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         }
     }
     
-    func stop() {
+    func stopAndDrain() {
         if let session = captureSession {
             if session.isRunning { session.stopRunning() }
         }
+        audioQueue.sync {}
     }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
