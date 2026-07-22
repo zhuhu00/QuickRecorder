@@ -8,7 +8,7 @@
 | --- | --- |
 | 首次审查日期 | 2026-07-22 |
 | 最近复查日期 | 2026-07-22 |
-| 当前代码基线 | `main` / `9f9dc64 feat: harden recording startup and simplify capture modes`，叠加未提交的 QR-005/QR-014 修复 |
+| 当前代码基线 | `main` / 本地开发分支最新提交（具体提交见 `git log`） |
 | 当前总体状态 | 适合本机开发测试；暂不建议直接分发二进制 |
 | 建议首发范围 | Apple Silicon (`arm64`) / macOS 14.2 及以上 |
 | 主要技术 | SwiftUI、AppKit、ScreenCaptureKit、AVFoundation |
@@ -35,10 +35,9 @@
 
 1. SwiftUI Delegate 与 `AppDelegate.shared` 仍是两个实例，部分入口可能读写不同的录制状态。
 2. 外接麦克风仍按名称保存，同名设备无法稳定区分。
-3. Release 仍注入 `get-task-allow` 调试权限。
-4. 项目仍缺少自动化测试、干净 Mac 分发验证和完整 Fork 发布资料。
+3. 项目仍缺少自动化测试、干净 Mac 分发验证和完整 Fork 发布资料。
 
-`QR-001` 至 `QR-005`、`QR-014` 与 `QR-015` 均已完成代码、构建和真实场景验证，当前没有未完成的 P1。后续工作以 P2 稳定性和公开分发准备为主。
+`QR-001` 至 `QR-005`、`QR-014`、`QR-015` 与 `QR-017` 均已完成对应验收，当前没有未完成的 P1。后续工作以 P2 稳定性和公开分发准备为主。
 
 ## 3. 问题总表
 
@@ -60,7 +59,7 @@
 | QR-014 | P1 | 已完成 | 暂停恢复 | 画面、系统音频和麦克风统一时间轴已通过实机验证 |
 | QR-015 | P2 | 已完成 | QMA 导出 | 有界重试、较长轨时长和失败清理已通过实机验证 |
 | QR-016 | P2 | 待处理 | 应用状态 | SwiftUI Delegate 与 `AppDelegate.shared` 是两个实例 |
-| QR-017 | P2 | 待处理 | 构建分发 | Release 仍包含 `com.apple.security.get-task-allow = true` |
+| QR-017 | P2 | 已完成 | 构建分发 | Release 已移除 `get-task-allow`，Debug 调试权限保持不变 |
 | QR-018 | P3 | 待处理 | QMA 界面 | 导出指示器的重复 Timer 没有失效机制 |
 
 ## 4. 详细问题与验收标准
@@ -305,13 +304,15 @@
 ### QR-017：Release 包含 `get-task-allow`
 
 - 优先级：`P2`
-- 状态：`待处理`
-- 当前证据：
-  - Release 构建设置：`CODE_SIGN_INJECT_BASE_ENTITLEMENTS = YES`
-  - Release 签名权限：`com.apple.security.get-task-allow = true`
+- 状态：`已完成`
+- 原证据：
+  - Release 构建设置曾为：`CODE_SIGN_INJECT_BASE_ENTITLEMENTS = YES`
+  - Release 签名权限曾包含：`com.apple.security.get-task-allow = true`
   - `QuickRecorder.xcodeproj/project.pbxproj:507-539`
 - 问题：当前 Apple Development Release 可以按既定方案让熟人手动放行，但仍携带允许调试器附加的开发权限。它不妨碍免费分发，却会削弱发布包的运行时保护，也不应出现在公开下载的 Release 中。
 - 修复方向：仅在 Release 设置 `CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO`，保留 Debug 的调试能力以及既定的 Apple Development、Team ID、Bundle ID 和 arm64 配置。该修改不要求购买 99 美元会员，也不改变接收者首次通过“隐私与安全性 → 仍要打开”的流程。
+- 当前实现：QuickRecorder App Target 的 Release 设置为 `CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO`；Debug 仍解析为 `YES`。显式 entitlement 文件未改动，麦克风和相机权限继续保留。
+- 当前验证：签名 Release 只包含 audio-input 与 camera，不含 `get-task-allow`；签名 Debug 额外包含 `get-task-allow = true`。Release 严格签名校验通过、架构为 arm64、Identifier 为 `io.github.zhuhu00.QuickRecorder`、Authority 为 Apple Development、Team 为 `H7W4RZVP64`；Debug、Release 和 Analyze 均通过。
 - 验收标准：
   1. `codesign -d --entitlements :- QuickRecorder.app` 的 Release 输出不再包含 `com.apple.security.get-task-allow`。
   2. Debug 仍可由 Xcode 附加调试，Release 仍为 `arm64`、Apple Development 和 Team `H7W4RZVP64`。
@@ -389,8 +390,8 @@
 
 以下顺序按风险优先；`QR-001` 至 `QR-004` 已完成，不再重复安排：
 
-1. `QR-017`：移除 Release 的 `get-task-allow`；不影响 Debug 调试能力。
-2. `QR-009`、`QR-016`：改用稳定设备 ID，并统一唯一 App Delegate/状态拥有者。
+1. `QR-016`：统一唯一 App Delegate/状态拥有者。
+2. `QR-009`：麦克风设置改用稳定设备 ID。
 3. `QR-006`、`QR-007`、`QR-013`：收敛最低系统版本、实际帧率和新版 macOS 能力判断。
 4. `QR-010`：建立测试 Target 和 CI，覆盖开始、暂停、恢复、停止及失败状态机。
 5. `QR-011`、`QR-012`、`QR-018`：完成干净 Mac 验证、Fork 发布资料和低优先级 UI 生命周期清理。
@@ -399,6 +400,7 @@
 
 | 日期 | 变更 | 关联项 |
 | --- | --- | --- |
+| 2026-07-22 | Release 禁止注入 base debug entitlement，最终签名不再包含 get-task-allow；Debug 仍保留调试权限，签名身份与 arm64 分发策略不变 | QR-017 |
 | 2026-07-22 | 用户完成正常 QMA 自动混音实测，确认 Processing 正常退出且最终文件合理；QR-015 标记完成 | QR-015 |
 | 2026-07-22 | QMA 离线混音按较长轨时长渲染，写入可用的 insufficient-data frame，并以连续无进度上限保证失败路径恢复 Engine、保留 QMA和结束 Processing | QR-015 |
 | 2026-07-22 | 用户完成外接麦克风断开与 Pause/Resume 真实录制验证，确认默认输入接续、录制不中断且三路时间轴同步合理；两项标记完成 | QR-005、QR-014 |
