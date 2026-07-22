@@ -29,6 +29,17 @@ let camWindow = NSPanel(contentRect: NSRect(x: 200, y: 200, width: 200, height: 
 let controlPanel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10), styleMask: [.fullSizeContentView], backing: .buffered, defer: false)
 let countdownPanel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 120, height: 120), styleMask: [.fullSizeContentView], backing: .buffered, defer: false)
 let previewWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 266, height: 156), styleMask: [.fullSizeContentView], backing: .buffered, defer: false)
+
+enum AppRuntime {
+    static var isRunningUnitTests: Bool {
+        detectsUnitTests(in: ProcessInfo.processInfo.environment)
+    }
+
+    static func detectsUnitTests(in environment: [String: String]) -> Bool {
+        environment["XCTestConfigurationFilePath"] != nil
+    }
+}
+
 @main
 struct QuickRecorderApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
@@ -113,7 +124,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
     @AppStorage("remuxAudio")       var remuxAudio: Bool = true
     @AppStorage("recordWinSound")   var recordWinSound: Bool = true
     @AppStorage("recordHDR")        var recordHDR: Bool = false
-    @AppStorage("encoder")          var encoder: Encoder = .h265
+    @AppStorage("encoder")          var encoder: Encoder = .defaultValue
     @AppStorage("highRes")          var highRes: Int = 2
     @AppStorage("AECLevel")         var AECLevel: String = "mid"
     @AppStorage("withAlpha")        var withAlpha: Bool = false
@@ -203,6 +214,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
     }
     
     func applicationWillFinishLaunching(_ notification: Notification) {
+        guard !AppRuntime.isRunningUnitTests else { return }
+
         scPerm = SCContext.updateAvailableContentSync() != nil
         
         let process = NSWorkspace.shared.runningApplications.filter({ $0.bundleIdentifier == Bundle.main.bundleIdentifier })
@@ -231,7 +244,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
                 "cameraDevice": "default",
                 "videoFormat": VideoFormat.mp4.rawValue,
                 "pixelFormat": PixFormat.delault.rawValue,
-                "encoder": Encoder.h264.rawValue,
+                "encoder": Encoder.defaultValue.rawValue,
                 "poSafeDelay": 1,
                 "saveDirectory": userDesktop as NSString,
                 "showMouse": true,
@@ -337,15 +350,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
     
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         assert(self === AppDelegate.shared)
+        guard !AppRuntime.isRunningUnitTests else { return }
+
         closeAllWindow()
         if showOnDock { _ = applicationShouldHandleReopen(NSApp, hasVisibleWindows: true) }
-        tips("Would you like to use H.265 format for better video quality and smaller file size?",
-             id: "qr.switch-to-h265.note", buttonTitle: "Use H.265", switchButton: true) {
-            ud.setValue(Encoder.h265.rawValue, forKey: "encoder")
+        if encoder == .h264 {
+            tips("Would you like to use H.265 format for better video quality and smaller file size?",
+                 id: "qr.switch-to-h265.note", buttonTitle: "Use H.265", switchButton: true) {
+                self.encoder = .h265
+            }
         }
     }
     
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard !AppRuntime.isRunningUnitTests else { return false }
+
         if SCContext.stream == nil {
             let w1 = NSApp.windows.filter({ !$0.title.contains("Item-0") && !$0.title.isEmpty && $0.isVisible })
             let w2 = w1.filter({ !$0.title.contains(".qma") })
@@ -633,7 +652,11 @@ enum PixFormat: String { case delault, yuv420p8v, yuv420p8f, yuv420p10v, yuv420p
 
 enum ColSpace: String { case delault, srgb, p3, bt709, bt2020 }
 
-enum Encoder: String { case h264, h265 }
+enum Encoder: String {
+    case h264, h265
+
+    static let defaultValue: Encoder = .h265
+}
 
 enum StreamType: Int { case screen, window, windows, screenarea, systemaudio }
 

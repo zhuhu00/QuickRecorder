@@ -320,7 +320,7 @@ extension AppDelegate {
                     button1: "Use H.265",
                     button2: "Continue with H.264"
                 )
-                if button == .alertFirstButtonReturn { ud.setValue(Encoder.h265.rawValue, forKey: "encoder") }
+                if button == .alertFirstButtonReturn { encoder = .h265 }
             }
         }
         

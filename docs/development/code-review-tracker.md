@@ -205,8 +205,8 @@
 - 当前基线：
   - 最低版本提升到 macOS 14.2 后，普通 `arm64 Debug/Release` 的 QuickRecorder 项目代码警告已清零；Xcode 26.5 仍输出 1 条“未链接 AppIntents”的工具级元数据提示，项目本身不使用 AppIntents。
   - 当前 Swift 5 工程启用 `SWIFT_STRICT_CONCURRENCY=complete` 仍会报告遗留全局共享状态和 AppKit actor 边界；CI 固定执行该诊断，升级 Swift 6 前需继续按模块迁移，不能用不安全标注掩盖。
-- 当前实现：新增生产代码实际使用的 `RecordingLifecycle` 状态机，并由 `SCContext` 的锁保护，`isStartingCapture` / `isStopping` 改为只读派生状态；新增 app-hosted `QuickRecorderTests` Target 与共享 Scheme，覆盖正常流程、Pause/Resume、失败重试、重复 Stop 和非法转换。GitHub Actions 使用 `macos-15` arm64 runner，无签名运行测试，并额外执行完整并发诊断构建。
-- 当前验证：本机 5 个 XCTest 全部通过；干净 arm64 Release 和 Analyze 通过且项目代码 warning 为 0；完整并发诊断构建成功并保留遗留诊断可见性。没有添加 `@unchecked Sendable`、`@preconcurrency` 或警告抑制。
+- 当前实现：新增生产代码实际使用的 `RecordingLifecycle` 状态机，并由 `SCContext` 的锁保护，`isStartingCapture` / `isStopping` 改为只读派生状态；新增 app-hosted `QuickRecorderTests` Target 与共享 Scheme，覆盖正常流程、Pause/Resume、失败重试、重复 Stop、非法转换、默认编码和测试宿主识别。`AppRuntime` 通过 `XCTestConfigurationFilePath` 识别测试进程，三个 App 启动/重开入口在测试中跳过 ScreenCaptureKit、通知授权、多实例退出、状态栏和窗口副作用。GitHub Actions 使用 `macos-15` arm64 runner，无签名运行测试，并额外执行完整并发诊断构建。
+- 当前验证：本机 7 个 XCTest 全部通过；固定路径 Debug App 保持运行时执行 `test-without-building`，原 PID 继续存活，日志没有多实例或权限错误；干净 arm64 Release 和 Analyze 通过且项目代码 warning 为 0；完整并发诊断构建成功并保留遗留诊断可见性。没有添加 `@unchecked Sendable`、`@preconcurrency` 或警告抑制。
 - 验收标准：
   1. 建立最小测试 Target 和 CI 构建任务。
   2. 核心状态机覆盖开始、暂停、恢复、停止、失败和重复停止。
@@ -408,6 +408,7 @@
 
 | 日期 | 变更 | 关联项 |
 | --- | --- | --- |
+| 2026-07-22 | 隔离 app-hosted XCTest 的启动副作用；固定 Debug App 运行期间 7 个测试全部通过，测试宿主不再触发权限或多实例退出 | QR-010 |
 | 2026-07-22 | Fork README、版本 `1.7.0 (170)`、AGPL/第三方声明、App 内源码链接、Release 验签脚本与手动分发说明完成；本机 Release 全项通过，只保留干净 Mac 外部验收 | QR-011、QR-012 |
 | 2026-07-22 | 完成两轮 30/60 FPS 高动态实录与 `ffprobe` 帧数/容器检查，确认合法采集上限和 60 FPS 档的有效提升 | QR-007 |
 | 2026-07-22 | 新增生产态 RecordingLifecycle、5 个 XCTest、共享测试 Scheme 与 arm64 GitHub Actions；CI 同时运行测试和 complete concurrency 诊断 | QR-010 |

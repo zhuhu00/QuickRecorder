@@ -57,3 +57,15 @@ final class RecordingLifecycleTests: XCTestCase {
         XCTAssertEqual(lifecycle.phase, .idle)
     }
 }
+
+final class QuickRecorderConfigurationTests: XCTestCase {
+    func testDefaultEncoderUsesH265() {
+        XCTAssertEqual(Encoder.defaultValue, .h265)
+    }
+
+    func testUnitTestRuntimeDetection() {
+        XCTAssertTrue(AppRuntime.detectsUnitTests(in: ["XCTestConfigurationFilePath": "/tmp/tests.xctestconfiguration"]))
+        XCTAssertFalse(AppRuntime.detectsUnitTests(in: [:]))
+        XCTAssertTrue(AppRuntime.isRunningUnitTests)
+    }
+}
