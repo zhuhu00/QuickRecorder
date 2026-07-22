@@ -52,7 +52,7 @@ struct ContentView: View {
                                 if let display = SCContext.getSCDisplayWithMouse() {
                                     closeMainWindow()
                                     appDelegate.createCountdownPanel(screen: display) {
-                                        AppDelegate.shared.prepRecord(type: "audio", screens: SCContext.getSCDisplayWithMouse(), windows: nil, applications: nil)
+                                        AppDelegate.shared.prepRecord(type: "audio", screens: SCContext.getSCDisplayWithMouse(), windows: nil)
                                     }
                                 }
                             }, label: {
@@ -181,14 +181,6 @@ struct ContentView: View {
                         }
                     }, label: {
                         SelectorView(title: "Screen Area".local, symbol: "viewfinder").cornerRadius(8)
-                    }).buttonStyle(.plain)
-                    Divider().frame(height: 70)
-                    Button(action: {
-                        closeMainWindow()
-                        appDelegate.createNewWindow(view: AppSelector(), title: "App Selector".local)
-                    }, label: {
-                        SelectorView(title: "Application".local, symbol: "app", symbolSize: 38, overlayer: "App")
-                            .cornerRadius(8)
                     }).buttonStyle(.plain)
                     Divider().frame(height: 70)
                     Button(action: {

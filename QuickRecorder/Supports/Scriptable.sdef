@@ -13,13 +13,6 @@
             <cocoa class="QuickRecorder.selectArea"/>
         </command>
         
-        <command name="record application" code="QKrdSlap" description="Select apps to record">
-            <cocoa class="QuickRecorder.selectApps"/>
-            <parameter name="named" code="NAmd" type="text" description="Application Name" optional="yes">
-                <cocoa key="name"/>
-            </parameter>
-        </command>
-        
         <command name="record window" code="QKrdSlwd" description="Select windows to record">
             <cocoa class="QuickRecorder.selectWindows"/>
             <parameter name="titled" code="TItd" type="text" description="Window Title" optional="yes">

@@ -13,79 +13,133 @@ import AVFAudio
 import VideoToolbox
 import AECAudioStream
 
+private enum RecordingStartError: LocalizedError {
+    case missingOutputDirectory
+    case missingShareableContent
+    case missingDisplay
+    case missingSelection(String)
+    case unsupportedFormat(String)
+    case outputAlreadyExists(String)
+    case cannotAddWriterInput(String)
+    case writerStartFailed(String)
+    case microphoneUnavailable
+    case microphoneConfigurationFailed(String)
+    case microphoneStartFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .missingOutputDirectory:
+            return "No output folder is configured.".local
+        case .missingShareableContent:
+            return "Screen capture content is unavailable. Please try again.".local
+        case .missingDisplay:
+            return "The selected display is no longer available.".local
+        case .missingSelection(let selection):
+            return String(format: "The selected %@ is no longer available.".local, selection.local)
+        case .unsupportedFormat(let format):
+            return String(format: "Unsupported recording format: %@".local, format)
+        case .outputAlreadyExists(let path):
+            return String(format: "A recording already exists at: %@".local, path)
+        case .cannotAddWriterInput(let input):
+            return String(format: "Unable to prepare the %@ recording track.".local, input.local)
+        case .writerStartFailed(let message):
+            return String(format: "Unable to start the recording writer: %@".local, message)
+        case .microphoneUnavailable:
+            return "The selected microphone is no longer available.".local
+        case .microphoneConfigurationFailed(let message):
+            return String(format: "Unable to configure the microphone: %@".local, message)
+        case .microphoneStartFailed:
+            return "Unable to start the selected microphone.".local
+        }
+    }
+}
+
 extension AppDelegate {
-    @objc func prepRecord(type: String, screens: SCDisplay?, windows: [SCWindow]?, applications: [SCRunningApplication]?, fastStart: Bool = false) {
+    @objc func prepRecord(type: String, screens: SCDisplay?, windows: [SCWindow]?, fastStart: Bool = false) {
         switch type {
         case "window":  SCContext.streamType = .window
         case "windows":  SCContext.streamType = .windows
         case "display": SCContext.streamType = .screen
-        case "application": SCContext.streamType = .application
         case "area": SCContext.streamType = .screenarea
         case "audio":   SCContext.streamType = .systemaudio
             default: return // if we don't even know what to record I don't think we should even try
         }
+        SCContext.filter = nil
+        SCContext.screen = nil
+        SCContext.window = nil
+
         var isDirectory: ObjCBool = false
-        let outputPath = saveDirectory!
+        guard let outputPath = saveDirectory, !outputPath.isEmpty else {
+            failRecordingPreparation(RecordingStartError.missingOutputDirectory)
+            return
+        }
         if fd.fileExists(atPath: outputPath, isDirectory: &isDirectory) {
             if !isDirectory.boolValue {
-                SCContext.streamType = nil
-                _ = createAlert(title: "Failed to Record".local, message: "The output path is a file instead of a folder!".local, button1: "OK").runModal()
+                failRecordingPreparation(message: "The output path is a file instead of a folder!".local)
                 return
             }
         } else {
             do {
                 try fd.createDirectory(atPath: outputPath, withIntermediateDirectories: true, attributes: nil)
             } catch {
-                SCContext.streamType = nil
-                _ = createAlert(title: "Failed to Record".local, message: "Unable to create output folder!".local, button1: "OK").runModal()
+                failRecordingPreparation(message: "Unable to create output folder!".local)
                 return
             }
+        }
+
+        guard let availableContent = SCContext.availableContent else {
+            failRecordingPreparation(RecordingStartError.missingShareableContent)
+            return
         }
         
         // file preparation
         if let screens = screens {
-            SCContext.screen = SCContext.availableContent!.displays.first(where: { $0 == screens })
-        } else { SCContext.streamType = nil; return }
+            SCContext.screen = availableContent.displays.first(where: { $0 == screens })
+        } else {
+            failRecordingPreparation(RecordingStartError.missingDisplay)
+            return
+        }
         
         if let windows = windows {
-            SCContext.window = SCContext.availableContent!.windows.filter({ windows.contains($0) })
-        } else { if SCContext.streamType == .window { SCContext.streamType = nil; return } }
+            SCContext.window = availableContent.windows.filter({ windows.contains($0) })
+        } else if SCContext.streamType == .window || SCContext.streamType == .windows {
+            failRecordingPreparation(RecordingStartError.missingSelection("window"))
+            return
+        }
         
-        if let applications = applications {
-            SCContext.application = SCContext.availableContent!.applications.filter({ applications.contains($0) })
-        } else { if SCContext.streamType == .application { SCContext.streamType = nil; return } }
-        
-        let screen = SCContext.screen ?? SCContext.getSCDisplayWithMouse()!
-        let qrSelf = SCContext.getSelf()
+        guard let screen = SCContext.screen ?? SCContext.getSCDisplayWithMouse() else {
+            failRecordingPreparation(RecordingStartError.missingDisplay)
+            return
+        }
         let qrWindows = SCContext.getSelfWindows()
-        let dockApp = SCContext.availableContent!.applications.first(where: { $0.bundleIdentifier.description == "com.apple.dock" })
-        let wallpaper = SCContext.availableContent!.windows.filter({
+        let dockApp = availableContent.applications.first(where: { $0.bundleIdentifier.description == "com.apple.dock" })
+        let wallpaper = availableContent.windows.filter({
             guard let title = $0.title else { return false }
             return $0.owningApplication?.bundleIdentifier == "com.apple.dock" && title != "LPSpringboard" && title != "Dock"
         })
-        let desktop = SCContext.availableContent!.windows.filter({
+        let desktop = availableContent.windows.filter({
             guard let title = $0.title else { return false }
             return $0.owningApplication?.bundleIdentifier == "" && title == "Desktop"
         })
-        let dockWindow = SCContext.availableContent!.windows.filter({
-            guard let title = $0.title else { return true }
-            return $0.owningApplication?.bundleIdentifier == "com.apple.dock" && title == "Dock"
-        })
-        let desktopFiles = SCContext.availableContent!.windows.filter({
+        let desktopFiles = availableContent.windows.filter({
             $0.owningApplication?.bundleIdentifier == "com.apple.finder"
             && $0.title == "" && $0.frame == screen.frame })
-        let controlCenterWindow = SCContext.availableContent!.applications.filter({ $0.bundleIdentifier == "com.apple.controlcenter" })
-        let mouseWindow = SCContext.availableContent!.windows.filter({ $0.title == "Mouse Pointer".local && $0.owningApplication?.bundleIdentifier == Bundle.main.bundleIdentifier })
-        let camLayer = SCContext.availableContent!.windows.filter({ $0.title == "Camera Overlayer".local && $0.owningApplication?.bundleIdentifier == Bundle.main.bundleIdentifier })
+        let controlCenterWindow = availableContent.applications.filter({ $0.bundleIdentifier == "com.apple.controlcenter" })
+        let mouseWindow = availableContent.windows.filter({ $0.title == "Mouse Pointer".local && $0.owningApplication?.bundleIdentifier == Bundle.main.bundleIdentifier })
+        let camLayer = availableContent.windows.filter({ $0.title == "Camera Overlayer".local && $0.owningApplication?.bundleIdentifier == Bundle.main.bundleIdentifier })
         var appBlackList = [String]()
         if let savedData = ud.data(forKey: "hiddenApps"),
            let decodedApps = try? JSONDecoder().decode([AppInfo].self, from: savedData) {
             appBlackList = (decodedApps as [AppInfo]).map({ $0.bundleID })
         }
-        let excliudedApps = SCContext.availableContent!.applications.filter({ appBlackList.contains($0.bundleIdentifier) })
+        let excliudedApps = availableContent.applications.filter({ appBlackList.contains($0.bundleIdentifier) })
         
         if SCContext.streamType == .window || SCContext.streamType == .windows {
             if var includ = SCContext.window {
+                guard !includ.isEmpty else {
+                    failRecordingPreparation(RecordingStartError.missingSelection("window"))
+                    return
+                }
                 if includ.count > 1 {
                     if highlightMouse { includ += mouseWindow }
                     if background.rawValue == BackgroundType.wallpaper.rawValue { if dockApp != nil { includ += wallpaper }}
@@ -117,24 +171,28 @@ extension AppDelegate {
                 SCContext.filter = SCContentFilter(display: screen, excludingApplications: excluded, exceptingWindows: except)
                 if #available(macOS 14.2, *) { SCContext.filter?.includeMenuBar = ((SCContext.streamType == .screen || SCContext.streamType == .screenarea) && includeMenuBar) }
             }
-            if SCContext.streamType == .application {
-                var includ = SCContext.application!
-                var except = [SCWindow]()
-                if let qrSelf = qrSelf { includ.append(qrSelf) }
-                let withFinder = includ.map{ $0.bundleIdentifier }.contains("com.apple.finder")
-                if withFinder && hideDesktopFiles { except += desktopFiles }
-                if hideSelf { if let qrWindows = qrWindows { except += qrWindows }}
-                //if ud.bool(forKey: "highlightMouse") { if let qrSelf = qrSelf { includ.append(qrSelf) }}
-                if background.rawValue == BackgroundType.wallpaper.rawValue { if let dock = dockApp { includ.append(dock); except += dockWindow}}
-                SCContext.filter = SCContentFilter(display: screen, including: includ, exceptingWindows: except)
-                if #available(macOS 14.2, *) { SCContext.filter?.includeMenuBar = includeMenuBar }
-            }
         }
         if SCContext.streamType == .systemaudio {
             SCContext.filter = SCContentFilter(display: screen, excludingApplications: [], exceptingWindows: [])
-            prepareAudioRecording()
         }
-        Task { await record(filter: SCContext.filter!, fastStart: fastStart) }
+        guard let filter = SCContext.filter else {
+            failRecordingPreparation(message: "Unable to prepare the selected recording source.".local)
+            return
+        }
+        Task { await record(filter: filter, fastStart: fastStart) }
+    }
+
+    private func failRecordingPreparation(_ error: Error) {
+        failRecordingPreparation(message: error.localizedDescription)
+    }
+
+    private func failRecordingPreparation(message: String) {
+        SCContext.filter = nil
+        SCContext.screen = nil
+        SCContext.window = nil
+        SCContext.streamType = nil
+        _ = createAlert(title: "Failed to Record".local, message: message, button1: "OK").runModal()
+        updateStatusBar()
     }
 
     func record(filter: SCContentFilter, fastStart: Bool = true) async {
@@ -143,6 +201,16 @@ extension AppDelegate {
         SCContext.isResume = false
         
         let audioOnly = SCContext.streamType == .systemaudio
+        let shouldRecordMicrophone = recordMic
+        let selectedMicrophone = micDevice
+        let selectedAEC = enableAEC
+        var activeStream: SCStream?
+        var createdOutputURL: URL?
+        var microphoneStarted = false
+        var captureStartAttempted = false
+        SCContext.isStartingCapture = true
+
+        do {
         
         let conf: SCStreamConfiguration
 #if compiler(>=6.0)
@@ -167,19 +235,26 @@ extension AppDelegate {
                 conf.width = Int(filter.contentRect.width) * (highRes == 2 ? Int(filter.pointPixelScale) : 1)
                 conf.height = Int(filter.contentRect.height) * (highRes == 2 ? Int(filter.pointPixelScale) : 1)
             } else {
-                guard let pointPixelScaleOld = (SCContext.screen ?? SCContext.getSCDisplayWithMouse()!).nsScreen?.backingScaleFactor else { return }
-                if SCContext.streamType == .application || SCContext.streamType == .windows || SCContext.streamType == .screen {
-                    let frame = (SCContext.screen ?? SCContext.getSCDisplayWithMouse()!).frame
+                guard let display = SCContext.screen ?? SCContext.getSCDisplayWithMouse(),
+                      let pointPixelScaleOld = display.nsScreen?.backingScaleFactor else {
+                    throw RecordingStartError.missingDisplay
+                }
+                if SCContext.streamType == .windows || SCContext.streamType == .screen {
+                    let frame = display.frame
                     conf.width = Int(frame.width)
                     conf.height = Int(frame.height)
                 }
                 if SCContext.streamType == .window {
-                    let frame = SCContext.window![0].frame
+                    guard let frame = SCContext.window?.first?.frame else {
+                        throw RecordingStartError.missingSelection("window")
+                    }
                     conf.width = Int(frame.width)
                     conf.height = Int(frame.height)
                 }
                 if SCContext.streamType == .screenarea {
-                    let frame = SCContext.screenArea!
+                    guard let frame = SCContext.screenArea else {
+                        throw RecordingStartError.missingSelection("screen area")
+                    }
                     conf.width = Int(frame.width)
                     conf.height = Int(frame.height)
                 }
@@ -241,13 +316,18 @@ extension AppDelegate {
 
         if SCContext.streamType == .screenarea {
             if let nsRect = SCContext.screenArea {
-                let newY = SCContext.screen!.frame.height - nsRect.size.height - nsRect.origin.y
+                guard let display = SCContext.screen else {
+                    throw RecordingStartError.missingDisplay
+                }
+                let newY = display.frame.height - nsRect.size.height - nsRect.origin.y
                 conf.sourceRect = CGRect(x: nsRect.origin.x, y: newY, width: nsRect.size.width, height: nsRect.size.height)
                 if #available(macOS 14.0, *) {
                     conf.width = Int(conf.sourceRect.width) * (highRes == 2 ? Int(filter.pointPixelScale) : 1)
                     conf.height = Int(conf.sourceRect.height) * (highRes == 2 ? Int(filter.pointPixelScale) : 1)
                 } else {
-                    guard let pointPixelScaleOld = (SCContext.screen ?? SCContext.getSCDisplayWithMouse()!).nsScreen?.backingScaleFactor else { return }
+                    guard let pointPixelScaleOld = display.nsScreen?.backingScaleFactor else {
+                        throw RecordingStartError.missingDisplay
+                    }
                     conf.width = Int(conf.sourceRect.width) * (highRes == 2 ? Int(pointPixelScaleOld) : 1)
                     conf.height = Int(conf.sourceRect.height) * (highRes == 2 ? Int(pointPixelScaleOld) : 1)
                 }
@@ -282,21 +362,35 @@ extension AppDelegate {
             }
         }
         
-        SCContext.stream = SCStream(filter: filter, configuration: conf, delegate: self)
-        do {
-            try SCContext.stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: SCContext.streamOutputQueue)
-            if #available(macOS 13, *) {
-                try SCContext.stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: SCContext.streamOutputQueue)
-            }
-            if !audioOnly {
-                initVideo(conf: conf)
-            } else {
-                //SCContext.startTime = Date.now
-                if recordMic { startMicRecording() }
-            }
-            try await SCContext.stream.startCapture()
+        let stream = SCStream(filter: filter, configuration: conf, delegate: self)
+        activeStream = stream
+        SCContext.stream = stream
+        try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: SCContext.streamOutputQueue)
+        if #available(macOS 13, *) {
+            try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: SCContext.streamOutputQueue)
+        }
+        if audioOnly {
+            createdOutputURL = try prepareAudioRecording(recordsMicrophone: shouldRecordMicrophone)
+        } else {
+            createdOutputURL = try initVideo(conf: conf, recordsMicrophone: shouldRecordMicrophone)
+        }
+        if shouldRecordMicrophone {
+            try startMicRecording(microphoneDevice: selectedMicrophone, enableAEC: selectedAEC)
+            microphoneStarted = true
+        }
+        captureStartAttempted = true
+        try await stream.startCapture()
+        SCContext.isStartingCapture = false
         } catch {
-            assertionFailure("capture failed".local)
+            await rollbackRecordingStart(
+                stream: activeStream,
+                outputURL: createdOutputURL,
+                microphoneStarted: microphoneStarted,
+                captureStartAttempted: captureStartAttempted,
+                microphoneDevice: selectedMicrophone,
+                enableAEC: selectedAEC,
+                error: error
+            )
             return
         }
         if !audioOnly { registerGlobalMouseMonitor() }
@@ -304,7 +398,7 @@ extension AppDelegate {
         if preventSleep { SleepPreventer.shared.preventSleep(reason: "Screen recording in progress") }
     }
 
-    func prepareAudioRecording() {
+    func prepareAudioRecording(recordsMicrophone: Bool) throws -> URL {
         var fileEnding = audioFormat.rawValue
         var fileType = AVFileType.m4a
         let encorder = fileEnding == AudioFormat.mp3.rawValue ? "aac" : fileEnding
@@ -314,32 +408,72 @@ extension AppDelegate {
             case AudioFormat.alac.rawValue: fileEnding = "m4a"
             case AudioFormat.flac.rawValue: fileEnding = "flac"; fileType = .caf
             case AudioFormat.opus.rawValue: fileEnding = "ogg"; fileType = .caf
-            default: assertionFailure("loaded unknown audio format: ".local + fileEnding)
+            default: throw RecordingStartError.unsupportedFormat(fileEnding)
         }
         let path = SCContext.getFilePath()
-        if recordMic && SCContext.streamType == .systemaudio {
+        if recordsMicrophone && SCContext.streamType == .systemaudio {
             SCContext.filePath = "\(path).qma"
             SCContext.filePath1 = "\(path).qma/sys.\(fileEnding)"
             SCContext.filePath2 = "\(path).qma/mic.\(fileEnding)"
+            let packageURL = SCContext.filePath.url
             let infoJsonURL = "\(path).qma/info.json".url
             let jsonString = "{\"format\": \"\(fileEnding)\", \"encoder\": \"\(encorder)\", \"exportMP3\": \(audioFormat.rawValue == AudioFormat.mp3.rawValue), \"sysVol\": 1.0, \"micVol\": 1.0}"
-            try? fd.createDirectory(at: SCContext.filePath.url, withIntermediateDirectories: true, attributes: nil)
-            try? jsonString.write(to: infoJsonURL, atomically: true, encoding: .utf8)
-            
-            SCContext.audioFile = try! AVAudioFile(forWriting: SCContext.filePath1.url, settings: SCContext.updateAudioSettings(), commonFormat: .pcmFormatFloat32, interleaved: false)
+            guard !fd.fileExists(atPath: packageURL.path) else {
+                throw RecordingStartError.outputAlreadyExists(packageURL.path)
+            }
+            do {
+                try fd.createDirectory(at: packageURL, withIntermediateDirectories: false, attributes: nil)
+                try jsonString.write(to: infoJsonURL, atomically: true, encoding: .utf8)
+                SCContext.audioFile = try AVAudioFile(
+                    forWriting: SCContext.filePath1.url,
+                    settings: SCContext.updateAudioSettings(),
+                    commonFormat: .pcmFormatFloat32,
+                    interleaved: false
+                )
 
-            let sampleRate = SCContext.getSampleRate() ?? 48000
-            let settings = SCContext.updateAudioSettings(rate: sampleRate)
-            SCContext.vW = try? AVAssetWriter.init(outputURL: SCContext.filePath2.url, fileType: fileType)
-            SCContext.micInput = AVAssetWriterInput(mediaType: AVMediaType.audio, outputSettings: settings)
-            SCContext.micInput.expectsMediaDataInRealTime = true
-            if SCContext.vW.canAdd(SCContext.micInput) { SCContext.vW.add(SCContext.micInput) }
-            SCContext.vW.startWriting()
-            //SCContext.audioFile2 = try! AVAudioFile(forWriting: SCContext.filePath2.url, settings: settings, commonFormat: .pcmFormatFloat32, interleaved: false)
+                let sampleRate = SCContext.getSampleRate() ?? 48000
+                let settings = SCContext.updateAudioSettings(rate: sampleRate)
+                let writer = try AVAssetWriter(outputURL: SCContext.filePath2.url, fileType: fileType)
+                SCContext.vW = writer
+                let microphoneInput = AVAssetWriterInput(mediaType: .audio, outputSettings: settings)
+                microphoneInput.expectsMediaDataInRealTime = true
+                guard writer.canAdd(microphoneInput) else {
+                    throw RecordingStartError.cannotAddWriterInput("microphone")
+                }
+                writer.add(microphoneInput)
+                guard writer.startWriting() else {
+                    throw RecordingStartError.writerStartFailed(writer.error?.localizedDescription ?? "Unknown Error".local)
+                }
+                SCContext.micInput = microphoneInput
+                return packageURL
+            } catch {
+                SCContext.audioFile = nil
+                if SCContext.vW?.status == .writing { SCContext.vW.cancelWriting() }
+                SCContext.vW = nil
+                SCContext.micInput = nil
+                try? fd.removeItem(at: packageURL)
+                throw error
+            }
         } else {
             SCContext.filePath = "\(path).\(fileEnding)"
             SCContext.filePath1 = SCContext.filePath
-            SCContext.audioFile = try! AVAudioFile(forWriting: SCContext.filePath.url, settings: SCContext.updateAudioSettings(), commonFormat: .pcmFormatFloat32, interleaved: false)
+            let outputURL = SCContext.filePath.url
+            guard !fd.fileExists(atPath: outputURL.path) else {
+                throw RecordingStartError.outputAlreadyExists(outputURL.path)
+            }
+            do {
+                SCContext.audioFile = try AVAudioFile(
+                    forWriting: outputURL,
+                    settings: SCContext.updateAudioSettings(),
+                    commonFormat: .pcmFormatFloat32,
+                    interleaved: false
+                )
+                return outputURL
+            } catch {
+                SCContext.audioFile = nil
+                try? fd.removeItem(at: outputURL)
+                throw error
+            }
         }
     }
 }
@@ -361,84 +495,114 @@ extension SCDisplay {
 }
 
 extension AppDelegate {
-    func initVideo(conf: SCStreamConfiguration) {
+    func initVideo(conf: SCStreamConfiguration, recordsMicrophone: Bool) throws -> URL {
         SCContext.startTime = nil
 
         let fileEnding = videoFormat.rawValue
-        var fileType: AVFileType?
+        let fileType: AVFileType
         switch fileEnding {
             case VideoFormat.mov.rawValue: fileType = AVFileType.mov
             case VideoFormat.mp4.rawValue: fileType = AVFileType.mp4
-            default: assertionFailure("loaded unknown video format".local)
+            default: throw RecordingStartError.unsupportedFormat(fileEnding)
         }
 
-        if remuxAudio && recordMic && recordWinSound {
+        if remuxAudio && recordsMicrophone && recordWinSound {
             SCContext.filePath = "\(SCContext.getFilePath()).\(fileEnding).\(fileEnding).\(fileEnding)"
         } else {
             SCContext.filePath = "\(SCContext.getFilePath()).\(fileEnding)"
         }
-        SCContext.vW = try? AVAssetWriter.init(outputURL: SCContext.filePath.url, fileType: fileType!)
-        let encoderIsH265 = (encoder.rawValue == Encoder.h265.rawValue) || recordHDR
-        let fpsMultiplier: Double = Double(frameRate)/8
-        let encoderMultiplier: Double = encoderIsH265 ? 0.5 : 0.9
-        let resolution = Double(max(600, conf.width)) * Double(max(600, conf.height))
-        var qualityMultiplier = 1 - (log10(sqrt(resolution) * fpsMultiplier) / 5)
-        switch videoQuality {
-            case 0.3: qualityMultiplier = max(0.1, qualityMultiplier)
-            case 0.7: qualityMultiplier = max(0.4, min(0.6, qualityMultiplier * 3))
-            default: qualityMultiplier = 1.0
-        }
-        let h264Level = AVVideoProfileLevelH264HighAutoLevel
-        let h265Level = recordHDR ? kVTProfileLevel_HEVC_Main10_AutoLevel : kVTProfileLevel_HEVC_Main_AutoLevel
-
-        let targetBitrate = resolution * fpsMultiplier * encoderMultiplier * qualityMultiplier * (recordHDR ? 2 : 1)
-        print("framerate set in app: \(frameRate)")
-        print("target bitrate: \(targetBitrate/1000000)")
-
-        var videoSettings: [String: Any] = [
-            AVVideoCodecKey: encoderIsH265 ? ((withAlpha && !recordHDR) ? AVVideoCodecType.hevcWithAlpha : AVVideoCodecType.hevc) : AVVideoCodecType.h264,
-            // yes, not ideal if we want more than these encoders in the future, but it's ok for now
-            AVVideoWidthKey: conf.width,
-            AVVideoHeightKey: conf.height,
-            AVVideoCompressionPropertiesKey: [
-                AVVideoProfileLevelKey: encoderIsH265 ? h265Level : h264Level,
-                AVVideoAverageBitRateKey: max(200000, Int(targetBitrate)),
-                AVVideoExpectedSourceFrameRateKey: frameRate,
-            ] as [String : Any]
-        ]
-        
-        if !recordHDR {
-            videoSettings[AVVideoColorPropertiesKey] = [
-                AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
-                AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
-                AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2] as [String : Any]
-        }
-        
-        SCContext.vwInput = AVAssetWriterInput(mediaType: AVMediaType.video, outputSettings: videoSettings)
-        SCContext.vwInput.expectsMediaDataInRealTime = true
-        
-        if SCContext.vW.canAdd(SCContext.vwInput) { SCContext.vW.add(SCContext.vwInput) }
-
-        if #available(macOS 13, *) {
-            SCContext.awInput = AVAssetWriterInput(mediaType: AVMediaType.audio, outputSettings: SCContext.updateAudioSettings())
-            SCContext.awInput.expectsMediaDataInRealTime = true
-            if SCContext.vW.canAdd(SCContext.awInput) { SCContext.vW.add(SCContext.awInput) }
+        let outputURL = SCContext.filePath.url
+        guard !fd.fileExists(atPath: outputURL.path) else {
+            throw RecordingStartError.outputAlreadyExists(outputURL.path)
         }
 
-        if recordMic {
-            let sampleRate = SCContext.getSampleRate() ?? 48000
-            let settings = SCContext.updateAudioSettings(rate: sampleRate)
-            
-            SCContext.micInput = AVAssetWriterInput(mediaType: AVMediaType.audio, outputSettings: settings)
-            SCContext.micInput.expectsMediaDataInRealTime = true
-            if SCContext.vW.canAdd(SCContext.micInput) { SCContext.vW.add(SCContext.micInput) }
-            startMicRecording()
+        do {
+            let writer = try AVAssetWriter(outputURL: outputURL, fileType: fileType)
+            SCContext.vW = writer
+
+            let encoderIsH265 = (encoder.rawValue == Encoder.h265.rawValue) || recordHDR
+            let fpsMultiplier: Double = Double(frameRate)/8
+            let encoderMultiplier: Double = encoderIsH265 ? 0.5 : 0.9
+            let resolution = Double(max(600, conf.width)) * Double(max(600, conf.height))
+            var qualityMultiplier = 1 - (log10(sqrt(resolution) * fpsMultiplier) / 5)
+            switch videoQuality {
+                case 0.3: qualityMultiplier = max(0.1, qualityMultiplier)
+                case 0.7: qualityMultiplier = max(0.4, min(0.6, qualityMultiplier * 3))
+                default: qualityMultiplier = 1.0
+            }
+            let h264Level = AVVideoProfileLevelH264HighAutoLevel
+            let h265Level = recordHDR ? kVTProfileLevel_HEVC_Main10_AutoLevel : kVTProfileLevel_HEVC_Main_AutoLevel
+
+            let targetBitrate = resolution * fpsMultiplier * encoderMultiplier * qualityMultiplier * (recordHDR ? 2 : 1)
+            print("framerate set in app: \(frameRate)")
+            print("target bitrate: \(targetBitrate/1000000)")
+
+            var videoSettings: [String: Any] = [
+                AVVideoCodecKey: encoderIsH265 ? ((withAlpha && !recordHDR) ? AVVideoCodecType.hevcWithAlpha : AVVideoCodecType.hevc) : AVVideoCodecType.h264,
+                // yes, not ideal if we want more than these encoders in the future, but it's ok for now
+                AVVideoWidthKey: conf.width,
+                AVVideoHeightKey: conf.height,
+                AVVideoCompressionPropertiesKey: [
+                    AVVideoProfileLevelKey: encoderIsH265 ? h265Level : h264Level,
+                    AVVideoAverageBitRateKey: max(200000, Int(targetBitrate)),
+                    AVVideoExpectedSourceFrameRateKey: frameRate,
+                ] as [String : Any]
+            ]
+
+            if !recordHDR {
+                videoSettings[AVVideoColorPropertiesKey] = [
+                    AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
+                    AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
+                    AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2] as [String : Any]
+            }
+
+            let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
+            videoInput.expectsMediaDataInRealTime = true
+            guard writer.canAdd(videoInput) else {
+                throw RecordingStartError.cannotAddWriterInput("video")
+            }
+            writer.add(videoInput)
+            SCContext.vwInput = videoInput
+
+            if #available(macOS 13, *) {
+                let systemAudioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: SCContext.updateAudioSettings())
+                systemAudioInput.expectsMediaDataInRealTime = true
+                guard writer.canAdd(systemAudioInput) else {
+                    throw RecordingStartError.cannotAddWriterInput("system audio")
+                }
+                writer.add(systemAudioInput)
+                SCContext.awInput = systemAudioInput
+            }
+
+            if recordsMicrophone {
+                let sampleRate = SCContext.getSampleRate() ?? 48000
+                let settings = SCContext.updateAudioSettings(rate: sampleRate)
+                let microphoneInput = AVAssetWriterInput(mediaType: .audio, outputSettings: settings)
+                microphoneInput.expectsMediaDataInRealTime = true
+                guard writer.canAdd(microphoneInput) else {
+                    throw RecordingStartError.cannotAddWriterInput("microphone")
+                }
+                writer.add(microphoneInput)
+                SCContext.micInput = microphoneInput
+            }
+
+            guard writer.startWriting() else {
+                throw RecordingStartError.writerStartFailed(writer.error?.localizedDescription ?? "Unknown Error".local)
+            }
+            return outputURL
+        } catch {
+            if let writer = SCContext.vW, writer.status == .writing { writer.cancelWriting() }
+            SCContext.vW = nil
+            SCContext.vwInput = nil
+            SCContext.awInput = nil
+            SCContext.micInput = nil
+            try? fd.removeItem(at: outputURL)
+            throw error
         }
-        SCContext.vW.startWriting()
     }
     
-    func startMicRecording() {
-        if micDevice == "default" {
+    func startMicRecording(microphoneDevice: String, enableAEC: Bool) throws {
+        if microphoneDevice == "default" {
             if enableAEC {
                 var level = AUVoiceIOOtherAudioDuckingLevel.mid
                 switch AECLevel {
@@ -446,26 +610,109 @@ extension AppDelegate {
                     case "max": level = .max
                     default: level = .mid
                 }
-                try? SCContext.AECEngine.startAudioStream(enableAEC: enableAEC, duckingLevel: level, audioBufferHandler: { pcmBuffer in
-                    if SCContext.isPaused || SCContext.startTime == nil { return }
-                    if SCContext.micInput.isReadyForMoreMediaData {
-                        SCContext.micInput.append(pcmBuffer.asSampleBuffer!)
-                    }
-                })
+                do {
+                    try SCContext.AECEngine.startAudioStream(enableAEC: enableAEC, duckingLevel: level, audioBufferHandler: { pcmBuffer in
+                        if SCContext.isPaused || SCContext.startTime == nil { return }
+                        if SCContext.micInput.isReadyForMoreMediaData {
+                            SCContext.micInput.append(pcmBuffer.asSampleBuffer!)
+                        }
+                    })
+                } catch {
+                    try? SCContext.AECEngine.stopAudioUnit()
+                    throw error
+                }
             } else {
                 let input = SCContext.audioEngine.inputNode
                 let inputFormat = input.inputFormat(forBus: 0)
+                guard inputFormat.channelCount > 0, inputFormat.sampleRate > 0 else {
+                    throw RecordingStartError.microphoneUnavailable
+                }
                 input.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { buffer, time in
                     if SCContext.isPaused || SCContext.startTime == nil { return }
                     if SCContext.micInput.isReadyForMoreMediaData {
                         SCContext.micInput.append(buffer.asSampleBuffer!)
                     }
                 }
-                try! SCContext.audioEngine.start()
+                do {
+                    try SCContext.audioEngine.start()
+                } catch {
+                    input.removeTap(onBus: 0)
+                    SCContext.audioEngine.stop()
+                    throw error
+                }
             }
         } else {
-            AudioRecorder.shared.setupAudioCapture()
-            AudioRecorder.shared.start()
+            try AudioRecorder.shared.setupAudioCapture()
+            try AudioRecorder.shared.start()
+        }
+    }
+
+    private func rollbackRecordingStart(
+        stream: SCStream?,
+        outputURL: URL?,
+        microphoneStarted: Bool,
+        captureStartAttempted: Bool,
+        microphoneDevice: String,
+        enableAEC: Bool,
+        error: Error
+    ) async {
+        if captureStartAttempted, let stream {
+            try? await stream.stopCapture()
+        }
+        SCContext.streamOutputQueue.sync {}
+
+        if microphoneStarted {
+            if microphoneDevice == "default" {
+                if enableAEC {
+                    try? SCContext.AECEngine.stopAudioUnit()
+                } else {
+                    SCContext.audioEngine.inputNode.removeTap(onBus: 0)
+                    SCContext.audioEngine.stop()
+                }
+            } else {
+                AudioRecorder.shared.stopAndDrain()
+            }
+        }
+
+        SCContext.audioFile = nil
+        SCContext.audioFile2 = nil
+        if let writer = SCContext.vW, writer.status == .writing { writer.cancelWriting() }
+        SCContext.vW = nil
+        SCContext.vwInput = nil
+        SCContext.awInput = nil
+        SCContext.micInput = nil
+
+        if let outputURL, fd.fileExists(atPath: outputURL.path) {
+            do {
+                try fd.removeItem(at: outputURL)
+            } catch {
+                print("Unable to remove failed recording output at \(outputURL.path): \(error.localizedDescription)")
+            }
+        }
+        SCContext.filePath = nil
+        SCContext.filePath1 = nil
+        SCContext.filePath2 = nil
+
+        await MainActor.run {
+            SCContext.isStartingCapture = false
+            SCContext.filter = nil
+            SCContext.stream = nil
+            SCContext.streamType = nil
+            SCContext.screen = nil
+            SCContext.window = nil
+            SCContext.startTime = nil
+            SCContext.firstFrame = nil
+            SCContext.lastPTS = nil
+            SCContext.timePassed = 0
+            SCContext.isPaused = false
+            SCContext.isResume = false
+            updateStatusBar()
+            _ = createAlert(
+                level: .critical,
+                title: "Failed to Record".local,
+                message: error.localizedDescription,
+                button1: "OK"
+            ).runModal()
         }
     }
     
@@ -560,7 +807,7 @@ extension AppDelegate {
         }
         switch outputType {
         case .screen:
-            if (SCContext.screen == nil && SCContext.window == nil && SCContext.application == nil) || SCContext.streamType == .systemaudio { break }
+            if (SCContext.screen == nil && SCContext.window == nil) || SCContext.streamType == .systemaudio { break }
             guard let attachmentsArray = CMSampleBufferGetSampleAttachmentsArray(SampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
                   let attachments = attachmentsArray.first else { return }
             guard let statusRawValue = attachments[SCStreamFrameInfo.status] as? Int,
@@ -627,6 +874,7 @@ extension AppDelegate {
         print("closing stream with error:\n".local, error,
               "\nthis might be due to the window closing or the user stopping from the sonoma ui".local)
         DispatchQueue.main.async {
+            guard !SCContext.isStartingCapture, SCContext.stream === stream else { return }
             SCContext.stopRecording(streamError: error)
         }
     }
@@ -634,52 +882,54 @@ extension AppDelegate {
 
 class AudioRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     static let shared = AudioRecorder()
-    private var captureSession: AVCaptureSession!
-    private var audioInput: AVCaptureDeviceInput!
-    private var audioDataOutput: AVCaptureAudioDataOutput!
+    private var captureSession: AVCaptureSession?
+    private var audioInput: AVCaptureDeviceInput?
+    private var audioDataOutput: AVCaptureAudioDataOutput?
     private let audioQueue = DispatchQueue(label: "io.github.zhuhu00.QuickRecorder.microphone-output")
 
-    func setupAudioCapture() {
-        captureSession = AVCaptureSession()
+    func setupAudioCapture() throws {
+        let session = AVCaptureSession()
 
         // Get the default audio device (microphone)
         guard let audioDevice = SCContext.getCurrentMic() else {
-            print("Unable to access microphone")
-            return
+            throw RecordingStartError.microphoneUnavailable
         }
         
         // Create audio input
-        do {
-            audioInput = try AVCaptureDeviceInput(device: audioDevice)
-        } catch {
-            print("Unable to create audio input: \(error)")
-            return
-        }
+        let input: AVCaptureDeviceInput
+        do { input = try AVCaptureDeviceInput(device: audioDevice) }
+        catch { throw RecordingStartError.microphoneConfigurationFailed(error.localizedDescription) }
         
         // Add audio input to capture session
-        if captureSession.canAddInput(audioInput) {
-            captureSession.addInput(audioInput)
-        } else {
-            print("Unable to add audio input to capture session")
-            return
+        guard session.canAddInput(input) else {
+            throw RecordingStartError.microphoneConfigurationFailed("Unable to add the microphone input.".local)
         }
+        session.addInput(input)
 
         // Create audio data output
-        audioDataOutput = AVCaptureAudioDataOutput()
-        audioDataOutput.setSampleBufferDelegate(self, queue: audioQueue)
+        let output = AVCaptureAudioDataOutput()
+        output.setSampleBufferDelegate(self, queue: audioQueue)
         
         // Add audio data output to capture session
-        if captureSession.canAddOutput(audioDataOutput) {
-            captureSession.addOutput(audioDataOutput)
-        } else {
-            print("Unable to add audio data output to capture session")
-            return
+        guard session.canAddOutput(output) else {
+            output.setSampleBufferDelegate(nil, queue: nil)
+            throw RecordingStartError.microphoneConfigurationFailed("Unable to add the microphone output.".local)
         }
+        session.addOutput(output)
+
+        captureSession = session
+        audioInput = input
+        audioDataOutput = output
     }
     
-    func start() {
-        if let session = captureSession {
-            session.startRunning()
+    func start() throws {
+        guard let session = captureSession else {
+            throw RecordingStartError.microphoneStartFailed
+        }
+        session.startRunning()
+        guard session.isRunning else {
+            stopAndDrain()
+            throw RecordingStartError.microphoneStartFailed
         }
     }
     
@@ -688,6 +938,10 @@ class AudioRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             if session.isRunning { session.stopRunning() }
         }
         audioQueue.sync {}
+        audioDataOutput?.setSampleBufferDelegate(nil, queue: nil)
+        captureSession = nil
+        audioInput = nil
+        audioDataOutput = nil
     }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {

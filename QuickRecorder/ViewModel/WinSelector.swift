@@ -249,7 +249,7 @@ struct WinSelector: View {
         closeAllWindow()
         appDelegate.createCountdownPanel(screen: display) {
             SCContext.autoStop = autoStop
-            appDelegate.prepRecord(type: (selected.count<2 ? "window" : "windows") , screens: display, windows: selected, applications: nil)
+            appDelegate.prepRecord(type: (selected.count<2 ? "window" : "windows") , screens: display, windows: selected)
         }
     }
 }

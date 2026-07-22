@@ -129,13 +129,13 @@ struct HighlightMask: View {
             dashWindow.orderFront(self)
             appDelegate.createCountdownPanel(screen: screen) {
                 SCContext.autoStop = autoStop
-                appDelegate.prepRecord(type: "area", screens: display, windows: nil, applications: nil)
+                appDelegate.prepRecord(type: "area", screens: display, windows: nil)
             }
         default:
             if let d = display, let w = window {
                 appDelegate.createCountdownPanel(screen: d) {
                     SCContext.autoStop = autoStop
-                    appDelegate.prepRecord(type: "window" , screens: d, windows: [w], applications: nil)
+                    appDelegate.prepRecord(type: "window" , screens: d, windows: [w])
                 }
             }
         }

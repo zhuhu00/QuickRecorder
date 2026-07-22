@@ -28,7 +28,7 @@ class selectScreen: NSScriptCommand {
                     } else {
                         let screen = screens[index]
                         AppDelegate.shared.createCountdownPanel(screen: screen) {
-                            AppDelegate.shared.prepRecord(type: "display", screens: screen, windows: nil, applications: nil)
+                            AppDelegate.shared.prepRecord(type: "display", screens: screen, windows: nil)
                         }
                     }
                 } else {
@@ -61,57 +61,6 @@ class selectArea: NSScriptCommand {
                             AppDelegate.shared.showAreaSelector(size: NSSize(width: 600, height: 450))
                         }
                     }
-                }
-            }
-        }
-        return nil
-    }
-}
-
-class selectApps: NSScriptCommand {
-    override func performDefaultImplementation() -> Any? {
-        if SCContext.stream != nil {
-            createAlert(title: "Error".local, message: "Already recording!".local, button1: "OK".local).runModal()
-            return nil
-        }
-        SCContext.updateAvailableContent {
-            DispatchQueue.main.async {
-                closeAllWindow()
-                if let name = self.evaluatedArguments!["name"] as? String {
-                    guard let app = SCContext.availableContent?.applications.first(where: { $0.applicationName == name }) else {
-                        createAlert(title: "Error".local, message: "No such application!".local, button1: "OK".local).runModal()
-                        return
-                    }
-                    closeAllWindow()
-                    guard let screens = SCContext.availableContent?.displays else { return }
-                    guard let windows = SCContext.availableContent?.windows.filter({
-                        guard let title = $0.title else { return false }
-                        return !title.contains("Item-0")
-                        && title != "Window"
-                        && $0.frame.width > 40
-                        && $0.frame.height > 40
-                    }) else { return }
-                    var s = [SCDisplay]()
-                    for screen in screens {
-                        for w in windows {
-                            if NSIntersectsRect(screen.frame, w.frame) { if !s.contains(screen) { s.append(screen) }}
-                        }
-                    }
-                    if s.isEmpty {
-                        createAlert(title: "Error".local, message: "This application has no windows!".local, button1: "OK".local).runModal()
-                        return
-                    }
-                    if s.count != 1 {
-                        AppDelegate.shared.createNewWindow(view: AppSelector(), title: "App Selector".local)
-                        createAlert(title: "Error".local, message: "This app exists in multiple screens, please select it manually!".local, button1: "OK".local).runModal()
-                    } else {
-                        AppDelegate.shared.createCountdownPanel(screen: s.first!) {
-                            AppDelegate.shared.prepRecord(type: "application", screens: s.first!, windows: nil, applications: [app])
-                        }
-                    }
-                } else {
-                    closeAllWindow()
-                    AppDelegate.shared.createNewWindow(view: AppSelector(), title: "App Selector".local)
                 }
             }
         }
@@ -159,11 +108,11 @@ class selectWindows: NSScriptCommand {
                     if let display = SCContext.getSCDisplayWithMouse() {
                         if s.contains(display) {
                             AppDelegate.shared.createCountdownPanel(screen: display) {
-                                AppDelegate.shared.prepRecord(type: "window" , screens: s.first!, windows: [window], applications: nil)
+                                AppDelegate.shared.prepRecord(type: "window" , screens: s.first!, windows: [window])
                             }
                         } else {
                             AppDelegate.shared.createCountdownPanel(screen: s.first!) {
-                                AppDelegate.shared.prepRecord(type: "window" , screens: s.first!, windows: [window], applications: nil)
+                                AppDelegate.shared.prepRecord(type: "window" , screens: s.first!, windows: [window])
                             }
                         }
                     }
@@ -190,7 +139,7 @@ class recordAudio: NSScriptCommand {
                     UserDefaults.standard.set(mic, forKey: "recordMic")
                 }
                 closeAllWindow()
-                AppDelegate.shared.prepRecord(type: "audio", screens: SCContext.getSCDisplayWithMouse(), windows: nil, applications: nil)
+                AppDelegate.shared.prepRecord(type: "audio", screens: SCContext.getSCDisplayWithMouse(), windows: nil)
                 UserDefaults.standard.set(m, forKey: "recordMic")
             }
         }

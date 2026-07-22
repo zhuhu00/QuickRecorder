@@ -9,13 +9,11 @@
 "System Audio " = "系统声音";
 "Screen Area" = "录制屏幕区域";
 "Screen" = "录制全屏画面";
-"Application" = "录制应用程序";
 "Window" = "录制窗口内容";
 "Camera" = "摄像头";
 "Preferences" = "偏好设置";
 "No Title" = "无标题";
 "Display " = "显示器";
-"Select Applications" = "选择应用程序";
 "Permission Required" = "需要授权";
 "Compatibility Warning" = "兼容性警告";
 "You are using macOS 12.7.4\nOutput files will be randomly corrupted on this version of macOS!\n\nPlease upgrade to 12.7.5 to solve it." = "检测到当前系统版本为 macOS 12.7.4\nQuickRecorder 在当前系统版本中会\n随机出现录像文件保存失败的情况!\n\n请升级至 macOS 12.7.5 以解决此问题.";
@@ -25,7 +23,6 @@
 "Open Settings" = "打开系统设置";
 "Quit" = "退出程序";
 "Cancel" = "取消";
-"Please select the App(s) to record" = "请选择需要录制的应用程序, 支持多选";
 "Please select the window(s) to record" = "请选择需要录制的窗口, 支持多选";
 "Please select the screen to record" = "请选择需要录制的屏幕, 仅支持单选";
 "Refresh" = "刷新列表";
@@ -164,9 +161,6 @@
 "Error" = "错误";
 "Already recording!" = "正在录制中!";
 "Invalid screen number!" = "无效的屏幕编号!";
-"No such application!" = "未找到此应用程序!";
-"This application has no windows!" = "此应用程序没有可录制的窗口!";
-"This app exists in multiple screens, please select it manually!" = "此应用程序同时存在于多个屏幕中, 请手动选择!";
 "No such window!" = "未找到此窗口!";
 "Duplicate window exists, please select it manually!" = "存在多个同名窗口, 请手动选择!";
 "Unable to find the screen this window belongs to!" = "无法确认此窗口所属的屏幕!";

@@ -69,21 +69,12 @@ struct ContentViewNew: View {
                     Divider().frame(height: 70)
                     Button(action: {
                         closeMainWindow()
-                        appDelegate.createNewWindow(view: AppSelector(), title: "App Selector".local)
-                    }, label: {
-                        SelectorView(title: "Application".local, symbol: "app", overlayer: "App")
-                            .cornerRadius(8)
-                    }).buttonStyle(.plain)
-                    Divider().frame(height: 70)
-                    Button(action: {
-                        closeMainWindow()
                         appDelegate.createNewWindow(view: WinSelector(), title: "Window Selector".local)
                     }, label: {
                         SelectorView(title: "Window".local, symbol: "macwindow").cornerRadius(8)
                     }).buttonStyle(.plain)
                 }
                 HStack(spacing: 27) {
-                    VStack { Divider().frame(width: 100) }
                     VStack { Divider().frame(width: 100) }
                     VStack { Divider().frame(width: 100) }
                     VStack { Divider().frame(width: 100) }
@@ -94,7 +85,7 @@ struct ContentViewNew: View {
                             if let display = SCContext.getSCDisplayWithMouse() {
                                 closeMainWindow()
                                 appDelegate.createCountdownPanel(screen: display) {
-                                    AppDelegate.shared.prepRecord(type: "audio", screens: SCContext.getSCDisplayWithMouse(), windows: nil, applications: nil)
+                                    AppDelegate.shared.prepRecord(type: "audio", screens: SCContext.getSCDisplayWithMouse(), windows: nil)
                                 }
                             }
                         }, label: {

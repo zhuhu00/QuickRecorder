@@ -298,12 +298,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
         KeyboardShortcuts.onKeyDown(for: .startWithAudio) {[self] in
             if SCContext.streamType != nil { return }
             closeAllWindow()
-            prepRecord(type: "audio", screens: SCContext.getSCDisplayWithMouse(), windows: nil, applications: nil, fastStart: true)
+            prepRecord(type: "audio", screens: SCContext.getSCDisplayWithMouse(), windows: nil, fastStart: true)
         }
         KeyboardShortcuts.onKeyDown(for: .startWithScreen) {[self] in
             if SCContext.stream != nil { return }
             closeAllWindow()
-            prepRecord(type: "display", screens: SCContext.getSCDisplayWithMouse(), windows: nil, applications: nil, fastStart: true)
+            prepRecord(type: "display", screens: SCContext.getSCDisplayWithMouse(), windows: nil, fastStart: true)
         }
         KeyboardShortcuts.onKeyDown(for: .startWithArea) {[self] in
             if SCContext.stream != nil { return }
@@ -316,7 +316,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
             let frontmostApp = NSWorkspace.shared.frontmostApplication
             if let pid = frontmostApp?.processIdentifier {
                 guard let scWindow = SCContext.getWindows().first(where: { $0.owningApplication?.processID == pid && $0.title != "" && $0.isOnScreen }) else { return }
-                prepRecord(type: "window", screens: SCContext.getSCDisplayWithMouse(), windows: [scWindow], applications: nil, fastStart: true)
+                prepRecord(type: "window", screens: SCContext.getSCDisplayWithMouse(), windows: [scWindow], fastStart: true)
                 return
             }
         }
@@ -338,7 +338,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
             let w2 = w1.filter({ !$0.title.contains(".qma") })
             if (!w1.isEmpty && w2.isEmpty) || w1.isEmpty {
                 let offset = (!showOnDock && !showMenubar) ? 127 : 0
-                let width = isMacOS12 ? 800 : 928
+                let width = isMacOS12 ? 546 : 674
                 let mainPanel = EscPanel(contentRect: NSRect(x: 0, y: 0, width: width + offset, height: 100), styleMask: [.fullSizeContentView, .nonactivatingPanel], backing: .buffered, defer: false)
                 mainPanel.contentView = NSHostingView(rootView: ContentView())
                 mainPanel.title = "QuickRecorder".local
@@ -631,6 +631,6 @@ enum ColSpace: String { case delault, srgb, p3, bt709, bt2020 }
 
 enum Encoder: String { case h264, h265 }
 
-enum StreamType: Int { case screen, window, windows, application, screenarea, systemaudio }
+enum StreamType: Int { case screen, window, windows, screenarea, systemaudio }
 
 enum BackgroundType: String { case wallpaper, clear, black, white, red, green, yellow, orange, gray, blue, custom }

@@ -32,7 +32,7 @@
 		18D3BDF22BCE5DC2006CFFC0 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 18D3BDF12BCE5DC2006CFFC0 /* Preview Assets.xcassets */; };
 		18D3BDFB2BCE5DF5006CFFC0 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 18D3BDFD2BCE5DF5006CFFC0 /* Localizable.strings */; };
 		18D3BDFF2BCE5E4B006CFFC0 /* StatusBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18D3BDFE2BCE5E4B006CFFC0 /* StatusBar.swift */; };
-		18D3BE012BCEB1BF006CFFC0 /* AppSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18D3BE002BCEB1BF006CFFC0 /* AppSelector.swift */; };
+		18D3BE012BCEB1BF006CFFC0 /* RecordingOptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18D3BE002BCEB1BF006CFFC0 /* RecordingOptionsView.swift */; };
 		18D3BE042BCEC847006CFFC0 /* SCContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18D3BE032BCEC847006CFFC0 /* SCContext.swift */; };
 		18E6F11A2C2E74DF00249DB1 /* QmaPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18E6F1192C2E74DF00249DB1 /* QmaPlayer.swift */; };
 		18F1A0E22BD3E4C000DB102C /* AreaSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18F1A0E12BD3E4C000DB102C /* AreaSelector.swift */; };
@@ -77,7 +77,7 @@
 		18D3BDF32BCE5DC2006CFFC0 /* QuickRecorder.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = QuickRecorder.entitlements; sourceTree = "<group>"; };
 		18D3BDFC2BCE5DF5006CFFC0 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		18D3BDFE2BCE5E4B006CFFC0 /* StatusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBar.swift; sourceTree = "<group>"; };
-		18D3BE002BCEB1BF006CFFC0 /* AppSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSelector.swift; sourceTree = "<group>"; };
+		18D3BE002BCEB1BF006CFFC0 /* RecordingOptionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingOptionsView.swift; sourceTree = "<group>"; };
 		18D3BE032BCEC847006CFFC0 /* SCContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SCContext.swift; sourceTree = "<group>"; };
 		18E6F1192C2E74DF00249DB1 /* QmaPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QmaPlayer.swift; sourceTree = "<group>"; };
 		18F1A0E12BD3E4C000DB102C /* AreaSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AreaSelector.swift; sourceTree = "<group>"; };
@@ -176,7 +176,7 @@
 				18FEBDAF2BD2C0D1003F09BC /* SettingsView.swift */,
 				18D3BDEC2BCE5DC1006CFFC0 /* ContentView.swift */,
 				1821F2E72CF4B226004A2EC0 /* ContentViewNew.swift */,
-				18D3BE002BCEB1BF006CFFC0 /* AppSelector.swift */,
+				18D3BE002BCEB1BF006CFFC0 /* RecordingOptionsView.swift */,
 				18FEBDAB2BD01E82003F09BC /* WinSelector.swift */,
 				18F1A0E12BD3E4C000DB102C /* AreaSelector.swift */,
 				18FEBDAD2BD10ED1003F09BC /* ScreenSelector.swift */,
@@ -299,7 +299,7 @@
 				18A551FB2D0749C3008FC5F6 /* WindowHighlighter.swift in Sources */,
 				18D3BE042BCEC847006CFFC0 /* SCContext.swift in Sources */,
 				18D3BDED2BCE5DC1006CFFC0 /* ContentView.swift in Sources */,
-				18D3BE012BCEB1BF006CFFC0 /* AppSelector.swift in Sources */,
+				18D3BE012BCEB1BF006CFFC0 /* RecordingOptionsView.swift in Sources */,
 				18FEBDAA2BCF8200003F09BC /* RecordEngine.swift in Sources */,
 				18FEBDB02BD2C0D1003F09BC /* SettingsView.swift in Sources */,
 				18E6F11A2C2E74DF00249DB1 /* QmaPlayer.swift in Sources */,

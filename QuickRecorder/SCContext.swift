@@ -45,12 +45,12 @@ class SCContext {
     static var stream: SCStream!
     static var screen: SCDisplay?
     static var window: [SCWindow]?
-    static var application: [SCRunningApplication]?
     static var streamType: StreamType?
     static let streamOutputQueue = DispatchQueue(
         label: "io.github.zhuhu00.QuickRecorder.stream-output",
         qos: .userInitiated
     )
+    static var isStartingCapture = false
     private(set) static var isStopping = false
     private static var stopCompletions = [() -> Void]()
     static var availableContent: SCShareableContent?
@@ -121,15 +121,6 @@ class SCContext {
             && title != "Screen Magnifier".local
             && title != "Camera Overlayer".local
         })
-    }
-    
-    static func getApps(isOnScreen: Bool = true, hideSelf: Bool = true) -> [SCRunningApplication] {
-        var apps = [SCRunningApplication]()
-        for app in getWindows(isOnScreen: isOnScreen, hideSelf: hideSelf).map({ $0.owningApplication }) {
-            if !apps.contains(app!) { apps.append(app!) }
-        }
-        if hideSelf && ud.bool(forKey: "hideSelf") { apps = apps.filter({$0.bundleIdentifier != Bundle.main.bundleIdentifier}) }
-        return apps
     }
     
     static func getWindows(isOnScreen: Bool = true, hideSelf: Bool = true) -> [SCWindow] {
@@ -643,6 +634,7 @@ class SCContext {
 
     private static func completeRecordingLifecycle() {
         DispatchQueue.main.async {
+            isStartingCapture = false
             isPaused = false
             isResume = false
             hideMousePointer = false
@@ -650,7 +642,6 @@ class SCContext {
             lastPTS = nil
             window = nil
             screen = nil
-            application = nil
             startTime = nil
             stream = nil
             streamType = nil

@@ -7,7 +7,8 @@
 | 项目 | 内容 |
 | --- | --- |
 | 首次审查日期 | 2026-07-22 |
-| 审查基线 | `main` / `ca87910 feat: customize QuickRecorder recording workflow` |
+| 最近复查日期 | 2026-07-22 |
+| 当前代码基线 | `main` / `e7f1629 feat: stabilize recording workflow and simplify capture devices` |
 | 当前总体状态 | 适合本机开发测试；暂不建议直接分发二进制 |
 | 建议首发范围 | Apple Silicon (`arm64`) / macOS 14.2 及以上 |
 | 主要技术 | SwiftUI、AppKit、ScreenCaptureKit、AVFoundation |
@@ -30,13 +31,14 @@
 
 ## 2. 审查结论
 
-当前代码可以在 Apple Silicon Mac 上生成原生 `arm64` 应用，不依赖 Rosetta。主要分发风险不是 M 系列芯片兼容性，而是以下三类问题：
+当前代码可以在 Apple Silicon Mac 上生成原生 `arm64` 应用，不依赖 Rosetta。最近一次复查中，Release 构建与 Xcode 静态分析均成功，本地化资源和 `git diff --check` 也通过；但“能够构建”仍不等于“适合公开分发”。当前主要风险是：
 
-1. 相机悬浮窗的显示状态、录制状态和 Capture Session 生命周期没有完全对齐。
-2. ScreenCaptureKit、麦克风 Writer、文件合成之间缺少严格的异步停止顺序。
-3. 缺少自动化测试、可重复的设备回归矩阵和正式 Release 签名流程。
+1. 录制启动失败时没有统一回滚，Writer、麦克风和全局录制状态可能残留。
+2. Pause/Resume 只压缩视频时间轴，系统音频和麦克风仍可能保留暂停间隔，造成音画或 QMA 双轨错位。
+3. QMA 离线渲染、外接麦克风和双 `AppDelegate` 实例仍存在卡住、静音或状态分裂风险。
+4. Release 仍注入 `get-task-allow` 调试权限，且缺少自动化测试、干净 Mac 分发验证和完整 Fork 发布资料。
 
-`QR-001` 至 `QR-004` 已完成，当前没有未解决的 P1；正式分发前仍需处理下表中的 P2 兼容性、错误处理和发布问题。
+`QR-001` 至 `QR-004` 已完成且用户完成了对应真实场景验证；当前仍有 `QR-005` 与 `QR-014` 两个未解决的 P1。它们解决前不建议把二进制作为公开 Release 分发。
 
 ## 3. 问题总表
 
@@ -46,7 +48,7 @@
 | QR-002 | P1 | 已完成 | 系统音频 | 麦克风 Writer 完成前就开始读取并导出 QMA |
 | QR-003 | P1 | 已完成 | 录制停止 | SCStream 尚未完全停止，AVAssetWriter 已开始结束写入 |
 | QR-004 | P1 | 已完成 | 相机 | 删除 Mobile Device 后，电脑相机独占 Capture Session |
-| QR-005 | P2 | 待处理 | 错误处理 | 常规磁盘或设备错误可能触发崩溃，而不是可恢复失败 |
+| QR-005 | P1 | 进行中 | 错误处理 | 已实现统一启动事务与失败回滚，等待真实异常场景验证 |
 | QR-006 | P2 | 待处理 | 系统兼容 | 标称支持 macOS 12.3，但系统音频实际需要 macOS 13 |
 | QR-007 | P2 | 进行中 | 视频配置 | 已修复无效 `CMTime`，等待 30/60 FPS 真实录制验证 |
 | QR-008 | P2 | 已移除 | 手机录制 | Mobile Device 功能已整体删除，错误通知路径不再存在 |
@@ -55,6 +57,11 @@
 | QR-011 | P2 | 进行中 | 构建分发 | Release 已限定 arm64 并使用开发签名，等待干净 Mac 手动放行验证 |
 | QR-012 | P3 | 待处理 | 开源发布 | README、版本、AGPL 和第三方依赖声明尚未按 Fork 发布整理 |
 | QR-013 | P3 | 待处理 | 系统兼容 | 使用精确主版本判断，较新 macOS 会遗漏部分分支逻辑 |
+| QR-014 | P1 | 待处理 | 暂停恢复 | Pause/Resume 只调整视频时间戳，音频与麦克风可能漂移 |
+| QR-015 | P2 | 待处理 | QMA 导出 | 离线渲染无进度时可能无限循环并卡在 Processing |
+| QR-016 | P2 | 待处理 | 应用状态 | SwiftUI Delegate 与 `AppDelegate.shared` 是两个实例 |
+| QR-017 | P2 | 待处理 | 构建分发 | Release 仍包含 `com.apple.security.get-task-allow = true` |
+| QR-018 | P3 | 待处理 | QMA 界面 | 导出指示器的重复 Timer 没有失效机制 |
 
 ## 4. 详细问题与验收标准
 
@@ -64,7 +71,6 @@
 - 状态：`已完成`
 - 证据：
   - `QuickRecorder/ViewModel/ScreenSelector.swift:154`
-  - `QuickRecorder/ViewModel/AppSelector.swift:164`
   - `QuickRecorder/ViewModel/WinSelector.swift:249`
   - `QuickRecorder/ViewModel/AreaSelector.swift:222`
   - `QuickRecorder/QuickRecorderApp.swift:400`
@@ -73,7 +79,7 @@
 - 当前修复：`closeAllWindow()` 在 `SCContext.recordCam` 非空时保留同一个 `camWindow`，避免录制选择器、快捷键或 AppleScript 开始录制时把已开启的相机悬浮窗关闭。取消 Camera 或录制结束仍由原有 `closeCamera()` 显式停止并隐藏相机。
 - 当前验证：`arm64 Debug` 构建与 Xcode 静态分析通过，`git diff --check` 通过；用户已完成真实摄像头录屏回归，确认相机悬浮窗保持可见并进入最终录屏。
 - 验收标准：
-  1. 开启 Camera 后分别启动整屏、区域、应用和多窗口录制，相机圈从录制第一帧开始可见。
+  1. 开启 Camera 后分别启动整屏、区域和多窗口录制，相机圈从录制第一帧开始可见。
   2. 打开或关闭菜单栏 Popover 不影响相机圈可见性。
   3. Camera 开关状态、`recordCam`、Session 运行状态和窗口可见状态一致。
   4. 单窗口录制若继续不支持相机叠加，界面必须在开始前明确禁用或提示，不能录完后才发现缺失。
@@ -124,20 +130,24 @@
 
 ### QR-005：可恢复错误会转为崩溃
 
-- 优先级：`P2`
-- 状态：`待处理`
+- 优先级：`P1`
+- 状态：`进行中`
 - 证据：
-  - `QuickRecorder/RecordEngine.swift:327`
-  - `QuickRecorder/RecordEngine.swift:331`
-  - `QuickRecorder/RecordEngine.swift:340`
-  - `QuickRecorder/RecordEngine.swift:378`
-  - `QuickRecorder/RecordEngine.swift:462`
-- 问题：录制路径存在 `try!`、隐式解包对象和 `try?` 后继续强制使用的情况。磁盘已满、目录失效、Writer 创建失败或麦克风启动失败都可能导致崩溃。
-- 修复方向：将录制准备阶段改为可失败流程，在开始 Capture 前完成目录、Writer、输入和设备验证。
+  - `QuickRecorder/RecordEngine.swift:285-300`
+  - `QuickRecorder/RecordEngine.swift:329-337`
+  - `QuickRecorder/RecordEngine.swift:342`
+  - `QuickRecorder/RecordEngine.swift:380`
+  - `QuickRecorder/RecordEngine.swift:464`
+- 问题：录制路径存在 `try!`、隐式解包对象和 `try?` 后继续强制使用的情况。更严重的是，`initVideo()` 或麦克风会在 `SCStream.startCapture()` 之前启动；如果 Capture 因权限、目标窗口消失或设备错误而失败，`catch` 只执行 `assertionFailure` 后返回，不会取消 Writer、停止麦克风、清空 `streamType` 或恢复菜单 UI。Release 下可能表现为崩溃、空文件或无法再次开始录制。
+- 优先级调整：复查后从 `P2` 提升为 `P1`。该路径直接影响首次授权和设备异常时的核心录制可恢复性。
+- 修复方向：将录制准备阶段改为可失败流程，在开始 Capture 前完成目录、Writer、输入和设备验证；建立单一 `failRecordingStart(error:)` 入口，按逆序停止麦克风、取消 Writer、释放 Stream、恢复睡眠策略和 UI，并向用户显示具体错误。
+- 当前实现：录制启动已改为单一可抛错事务；音频文件、视频 Writer、三类麦克风和 `SCStream.startCapture()` 共用回滚路径。回滚会停止并排空 Stream、停止已启动麦克风、取消 Writer、只删除本次独占创建的文件/QMA 目录、清空全局状态并在主线程提示错误；启动阶段的 `didStopWithError` 不再误入正常 Finalize。
+- 当前验证：`arm64 Debug`、`arm64 Release` 与 Xcode Analyze 均通过，`git diff --check` 通过；没有新增编译警告，启动路径不再包含 `try!`。由于本轮未覆盖安装，仍需在开发版中完成正常录制、麦克风断开或 Capture 启动失败后的立即重试验证。
 - 验收标准：
   1. 输出目录不可写、磁盘空间不足和麦克风不可用时不崩溃。
-  2. 失败后所有 Session、Writer 和 UI 状态均恢复到未录制状态。
-  3. 用户能看到具体失败原因和建议操作。
+  2. Capture 权限缺失、目标窗口在启动前关闭或 `startCapture()` 抛错时不会遗留运行中的麦克风、Writer 或锁定文件。
+  3. 失败后 `stream`、`streamType`、`isStopping`、状态栏和睡眠抑制均恢复到未录制状态，用户可以立即重试。
+  4. 用户能看到具体失败原因和建议操作，不依赖 Debug assertion。
 
 ### QR-006：最低系统版本与核心功能不一致
 
@@ -191,7 +201,7 @@
 - 状态：`待处理`
 - 当前基线：
   - 工程只有一个应用 Target，没有应用单元测试或 UI 测试 Target。
-  - 普通 `arm64 Release` 构建成功，共 9 条警告。
+  - 最近一次普通 `arm64 Release` 构建成功：8 条项目代码并发警告，另有 1 条无 AppIntents 依赖的元数据提示。
   - 启用完整并发检查后共有 454 条警告，其中 175 处会在 Swift 6 模式下成为错误。
 - 修复方向：先为录制状态机、输出路径和设备选择抽出可测试逻辑；逐步隔离全局可变状态和 AppKit 主线程状态。
 - 验收标准：
@@ -241,11 +251,82 @@
 - 修复方向：功能能力使用 `#available` 或能力检测；只在确实需要单个系统版本规避 Bug 时使用精确版本判断。
 - 验收标准：支持范围内各系统使用正确功能路径，新增 macOS 主版本不会默认退回旧行为。
 
+### QR-014：Pause/Resume 后音频时间轴没有同步压缩
+
+- 优先级：`P1`
+- 状态：`待处理`
+- 证据：
+  - `QuickRecorder/RecordEngine.swift:449-464`
+  - `QuickRecorder/RecordEngine.swift:549-560`
+  - `QuickRecorder/RecordEngine.swift:574`
+  - `QuickRecorder/RecordEngine.swift:603-615`
+  - `QuickRecorder/RecordEngine.swift:693-697`
+- 问题：恢复录制时计算出的 `SCContext.timeOffset` 只通过 `adjustTime` 应用到 `.screen` SampleBuffer。视频内的系统音频仍直接 append 原始 SampleBuffer，默认麦克风、AEC 麦克风和指定外接麦克风也都保留原始采集时间戳。暂停期间 Sample 被丢弃，但恢复后的音频时间轴可能继续包含暂停间隔，导致视频被压短而音频不压短；纯系统音频＋麦克风生成的 QMA 双轨也可能长度不同或恢复后错位。
+- 修复方向：定义一条统一录制时间轴，分别记录视频、系统音频和麦克风的最后 PTS，并把累计暂停偏移应用到所有写入 `AVAssetWriterInput` 的 SampleBuffer。纯音频写入 `AVAudioFile` 时仍需保证系统轨和麦克风 Writer 采用相同的暂停语义，不能只依赖连续文件写入。
+- 验收标准：
+  1. 屏幕＋系统音频＋麦克风录制中暂停 5 秒再恢复，最终文件不包含该 5 秒，恢复前后的音画误差不超过 100 ms。
+  2. 纯系统音频＋麦克风录制中暂停 5 秒，导出的两轨起点、恢复点和总时长一致。
+  3. 连续暂停/恢复三次后 PTS 单调递增，Writer 不报告非单调时间戳。
+  4. 使用 `ffprobe` 对比视频、系统音频和麦克风时长，并人工检查恢复点口令与画面动作同步。
+
+### QR-015：QMA 离线渲染可能无限循环
+
+- 优先级：`P2`
+- 状态：`待处理`
+- 证据：`QuickRecorder/ViewModel/QmaPlayer.swift:626-638`
+- 问题：`renderOffline` 返回 `.insufficientDataFromInputNode` 或 `.cannotDoInCurrentContext` 时，当前 `break` 只退出 `switch`，不会退出外层 `while`。若 `manualRenderingSampleTime` 没有增长，线程会持续空转；自动 QMA 导出不会调用 completion，录制生命周期会一直停在 `Processing...`，退出 App 也可能永久等待。
+- 修复方向：检测每轮渲染是否有时间进度，对可重试状态设置有限重试次数或短暂退避；超过阈值后抛出可恢复错误。用 `defer` 统一退出手动渲染模式、停止 Engine、恢复播放 Engine 并确保 completion 只执行一次。
+- 验收标准：
+  1. 正常 QMA、两轨长度不同和损坏 QMA 都能在有限时间内成功或失败，不出现无限循环。
+  2. 导出失败时发送失败通知、保留 QMA，并最终将 `isStopping` 恢复为 `false`。
+  3. 录制后处理中退出 App 时，无论导出成功或失败都会收到终止 completion。
+
+### QR-016：存在两个 `AppDelegate` 实例
+
+- 优先级：`P2`
+- 状态：`待处理`
+- 证据：
+  - `QuickRecorder/QuickRecorderApp.swift:37`
+  - `QuickRecorder/QuickRecorderApp.swift:91-99`
+  - `QuickRecorder/ViewModel/StatusBar.swift:40-44`
+- 问题：`@NSApplicationDelegateAdaptor(AppDelegate.self)` 会创建系统使用的 App Delegate，`static let shared = AppDelegate()` 又创建第二个实例。键盘快捷键闭包使用系统 Delegate 的 `self`，大多数 SwiftUI、相机和 AppleScript 入口使用 `AppDelegate.shared`。`isPresenterON`、`presenterType`、`frameQueue`、`isCameraReady` 和终止等待等实例状态可能被写在不同对象上，造成不同入口行为不一致。
+- 修复方向：只保留一个权威 App Delegate 实例。所有 UI、快捷键、AppleScript、SCStream 回调和相机恢复逻辑都应访问同一个对象；长期可把录制状态进一步迁移到明确的 Observable 状态拥有者。
+- 验收标准：
+  1. 运行时 `NSApp.delegate` 与业务代码访问的 App Delegate 是同一个实例。
+  2. 菜单、键盘快捷键和 AppleScript 启动录制时使用同一 `frameQueue` 与 Presenter Overlay 状态。
+  3. Presenter Overlay 开启时打开菜单栏 Popover，不会因读取另一实例的 `isPresenterON` 而错误恢复普通相机窗口。
+
+### QR-017：Release 包含 `get-task-allow`
+
+- 优先级：`P2`
+- 状态：`待处理`
+- 当前证据：
+  - Release 构建设置：`CODE_SIGN_INJECT_BASE_ENTITLEMENTS = YES`
+  - Release 签名权限：`com.apple.security.get-task-allow = true`
+  - `QuickRecorder.xcodeproj/project.pbxproj:507-539`
+- 问题：当前 Apple Development Release 可以按既定方案让熟人手动放行，但仍携带允许调试器附加的开发权限。它不妨碍免费分发，却会削弱发布包的运行时保护，也不应出现在公开下载的 Release 中。
+- 修复方向：仅在 Release 设置 `CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO`，保留 Debug 的调试能力以及既定的 Apple Development、Team ID、Bundle ID 和 arm64 配置。该修改不要求购买 99 美元会员，也不改变接收者首次通过“隐私与安全性 → 仍要打开”的流程。
+- 验收标准：
+  1. `codesign -d --entitlements :- QuickRecorder.app` 的 Release 输出不再包含 `com.apple.security.get-task-allow`。
+  2. Debug 仍可由 Xcode 附加调试，Release 仍为 `arm64`、Apple Development 和 Team `H7W4RZVP64`。
+  3. 在干净 M 系列 Mac 上手动放行后，屏幕与系统音频、麦克风和相机权限均可正常授权。
+
+参考：[Apple：Avoid the get-task-allow entitlement](https://developer.apple.com/documentation/security/resolving-common-notarization-issues)。
+
+### QR-018：QMA 导出指示器 Timer 不会失效
+
+- 优先级：`P3`
+- 状态：`待处理`
+- 证据：`QuickRecorder/ViewModel/QmaPlayer.swift:12-40`
+- 问题：`ActivityIndicator.onAppear` 每次创建一个 50 ms 重复 Timer，但没有保存引用或在 `onDisappear` 时 invalidate。反复导出或重建视图后可能累积 Timer 和动画更新，带来无意义的 CPU 占用和对象生命周期延长。
+- 修复方向：优先改用 SwiftUI `repeatForever` 动画或 `TimelineView`；若保留 Timer，则由对象持有并在视图消失时明确停止。
+- 验收标准：连续打开、导出和关闭 QMA 窗口后不累积活动 Timer，导出动画仍能正常开始和停止。
+
 ## 5. 建议兼容性矩阵
 
 | 平台 | 支持策略 | 需要验证的重点 |
 | --- | --- | --- |
-| Apple Silicon / macOS 14.2 | 建议最低支持版本 | 屏幕、区域、应用、窗口、系统音频、麦克风、相机叠加 |
+| Apple Silicon / macOS 14.2 | 建议最低支持版本 | 屏幕、区域、窗口、系统音频、麦克风、相机叠加 |
 | Apple Silicon / macOS 15 | 支持 | 权限、Continuity Camera、外接麦克风、Presenter Overlay |
 | Apple Silicon / macOS 26 | 支持 | 当前开发环境；回归 ScreenCaptureKit、状态栏、系统音频权限 |
 | Apple Silicon / macOS 13 | 暂不承诺，按需评估 | 核心系统音频可用，但缺少部分 14.2 功能 |
@@ -258,10 +339,10 @@
 
 - [ ] 整屏录制：内建屏幕、外接屏幕。
 - [ ] 区域录制：普通分辨率、Retina、高刷新率。
-- [ ] 应用录制：单应用、多窗口。
 - [ ] 窗口录制：单窗口、多窗口，并确认相机支持边界。
 - [ ] H.264、H.265；MP4、MOV；30 FPS、60 FPS。
-- [ ] 暂停、恢复、停止、连续快速开始和停止。
+- [ ] 视频＋系统音频＋麦克风录制中暂停 5 秒再恢复，确认暂停段被移除且三路时间轴同步。
+- [ ] 连续暂停/恢复三次、连续快速开始和停止，确认 PTS 单调且没有 Writer 错误。
 
 ### 音频
 
@@ -271,6 +352,8 @@
 - [ ] 内建麦克风、USB 耳机、蓝牙耳机。
 - [ ] 录制过程中切换默认输出、断开麦克风或耳机。
 - [ ] M4A、MP3，以及导出失败后的 QMA 恢复能力。
+- [ ] 纯系统音频＋麦克风暂停/恢复后，QMA 两轨恢复点和总时长一致。
+- [ ] 两轨长度不同或 QMA 损坏时，导出在有限时间内失败并保留恢复源。
 
 ### 相机
 
@@ -283,6 +366,7 @@
 ### 文件与异常
 
 - [ ] 输出目录无权限、目录被删除、磁盘空间不足。
+- [ ] `SCStream.startCapture()` 失败时，Writer、麦克风、睡眠抑制和 UI 全部回滚并允许立即重试。
 - [ ] 应用被强制退出后不会误报完成。
 - [ ] 最终文件可以被 QuickTime 正常打开，音视频时长匹配。
 - [ ] 失败时保留可恢复原始文件，成功时不遗留临时文件。
@@ -292,21 +376,30 @@
 - [ ] 在未安装开发证书的干净用户账户上首次启动。
 - [ ] 屏幕录制、系统音频、麦克风和摄像头权限提示完整。
 - [ ] 覆盖升级后 Bundle ID、签名和权限保持稳定。
+- [ ] Release 签名权限不包含 `com.apple.security.get-task-allow`。
 - [ ] GitHub Release 的二进制、源码 Tag、版本号和许可证一致。
 
 ## 7. 推荐开发顺序
 
-1. `QR-001`：先保证相机真正进入最终录屏。
-2. `QR-002`、`QR-003`：统一录制停止和文件 Finalize 状态机。
-3. `QR-005`、`QR-009`：补齐设备、磁盘和导出错误路径。
-4. `QR-006`、`QR-007`、`QR-013`：收敛系统版本和视频配置。
-5. `QR-010`：建立测试和 CI，防止后续功能反复回归。
-6. `QR-011`、`QR-012`：完成 arm64 Release、版本、文档、许可证和分发方案。
+以下顺序按风险优先；`QR-001` 至 `QR-004` 已完成，不再重复安排：
+
+1. `QR-005`：统一启动事务与失败回滚已完成代码和构建验证，等待真实异常场景与立即重试验证。
+2. `QR-014`：统一视频、系统音频和麦克风的 Pause/Resume 时间轴。
+3. `QR-015`：为 QMA 离线渲染增加有界失败，保证 Processing 和退出流程一定结束。
+4. `QR-017`：移除 Release 的 `get-task-allow`；改动较小，可与上述任一修复一起验证。
+5. `QR-009`、`QR-016`：改用稳定设备 ID，并统一唯一 App Delegate/状态拥有者。
+6. `QR-006`、`QR-007`、`QR-013`：收敛最低系统版本、实际帧率和新版 macOS 能力判断。
+7. `QR-010`：建立测试 Target 和 CI，覆盖开始、暂停、恢复、停止及失败状态机。
+8. `QR-011`、`QR-012`、`QR-018`：完成干净 Mac 验证、Fork 发布资料和低优先级 UI 生命周期清理。
 
 ## 8. 变更记录
 
 | 日期 | 变更 | 关联项 |
 | --- | --- | --- |
+| 2026-07-22 | 清理 Mobile Device 删除后遗留的固定宽度，五项主面板从 801 pt 收紧为 674 pt | 产品范围调整 |
+| 2026-07-22 | 根据产品决策删除 Application 录制入口、选择器、过滤分支与 AppleScript 命令；共享录制选项迁移到独立视图，保留 Screen、Area 和 Window | 产品范围调整 |
+| 2026-07-22 | 将录制准备、Writer、麦克风和 Capture 启动合并为可回滚事务；Debug、Release 与 Analyze 通过，等待真实异常场景验证 | QR-005 |
+| 2026-07-22 | 基于 `e7f1629` 再次审查：QR-005 提升为 P1；新增 Pause/Resume 时间轴、QMA 无限循环、双 AppDelegate、Release 调试权限和 Timer 生命周期问题 | QR-005、QR-014 ～ QR-018 |
 | 2026-07-22 | 修复 60 FPS 及以上的无效 `CMTime`；Release 限定 arm64 并改用固定 Apple Development 签名，等待真实录制与干净 Mac 验证 | QR-007、QR-011 |
 | 2026-07-22 | 根据产品决策整体删除 Mobile Device、USB 屏幕采集与手机预览链路，QR-004 完成，QR-008 不再适用 | QR-004、QR-008 |
 | 2026-07-22 | 用户确认异步停止、尾部音画和重复停止均正常，QR-003 完成 | QR-003 |
