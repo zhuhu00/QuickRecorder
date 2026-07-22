@@ -209,6 +209,7 @@ extension AppDelegate {
         var microphoneStarted = false
         var captureStartAttempted = false
         guard SCContext.beginRecordingStart() else { return }
+        SCContext.resetWriterSession()
 
         do {
         
@@ -644,6 +645,7 @@ extension AppDelegate {
         captureStartAttempted: Bool,
         error: Error
     ) async {
+        SCContext.resetWriterSession()
         if captureStartAttempted, let stream {
             try? await stream.stopCapture()
         }
@@ -771,8 +773,9 @@ extension AppDelegate {
                   status == .complete else { return }
             
             if SCContext.vW != nil && SCContext.vW?.status == .writing, SCContext.startTime == nil {
+                let sourceTime = CMSampleBufferGetPresentationTimeStamp(SampleBuffer)
+                guard SCContext.startWriterSessionIfNeeded(at: sourceTime) else { return }
                 SCContext.startTime = Date.now
-                SCContext.vW.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(SampleBuffer))
             }
             var pts = CMSampleBufferGetPresentationTimeStamp(SampleBuffer)
             let dur = CMSampleBufferGetDuration(SampleBuffer)
@@ -804,7 +807,8 @@ extension AppDelegate {
             if SCContext.streamType == .systemaudio { // write directly to file if not video recording
                 hideMousePointer = true
                 if SCContext.vW != nil && SCContext.vW?.status == .writing, SCContext.startTime == nil {
-                    SCContext.vW.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(SampleBuffer))
+                    let sourceTime = CMSampleBufferGetPresentationTimeStamp(SampleBuffer)
+                    guard SCContext.startWriterSessionIfNeeded(at: sourceTime) else { return }
                 }
                 if SCContext.startTime == nil { SCContext.startTime = Date.now }
                 guard let samples = SampleBuffer.asPCMBuffer else { return }

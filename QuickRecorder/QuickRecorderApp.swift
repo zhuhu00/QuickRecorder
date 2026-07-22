@@ -67,15 +67,16 @@ struct QuickRecorderApp: App {
                 .background(
                     WindowAccessor(
                         onWindowOpen: { w in
-                            if let w = w {
-                                //w.level = .floating
+                            if let w {
                                 w.titlebarSeparatorStyle = .none
-                                guard let nsSplitView = findNSSplitVIew(view: w.contentView),
-                                      let controller = nsSplitView.delegate as? NSSplitViewController else { return }
-                                controller.splitViewItems.first?.canCollapse = false
-                                controller.splitViewItems.first?.minimumThickness = 140
-                                controller.splitViewItems.first?.maximumThickness = 140
-                                w.orderFront(nil)
+                                if let nsSplitView = findNSSplitVIew(view: w.contentView),
+                                   let controller = nsSplitView.delegate as? NSSplitViewController {
+                                    controller.splitViewItems.first?.canCollapse = false
+                                    controller.splitViewItems.first?.minimumThickness = 140
+                                    controller.splitViewItems.first?.maximumThickness = 140
+                                }
+                                NSApp.activate(ignoringOtherApps: true)
+                                w.makeKeyAndOrderFront(nil)
                             }
                         })
                 )
@@ -135,7 +136,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
     @AppStorage("includeMenuBar")   var includeMenuBar: Bool = true
     @AppStorage("hideDesktopFiles") var hideDesktopFiles: Bool = false
     @AppStorage("trimAfterRecord")  var trimAfterRecord: Bool = false
-    @AppStorage("miniStatusBar")    var miniStatusBar: Bool = false
     @AppStorage("hideSelf")         var hideSelf: Bool = true
     @AppStorage("preventSleep")     var preventSleep: Bool = true
     @AppStorage("showPreview")      var showPreview: Bool = true
@@ -228,6 +228,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
         
         lazy var userDesktop = (NSSearchPathForDirectoriesInDomains(.desktopDirectory, .userDomainMask, true) as [String]).first!
         
+        let storedIndicatorStyle = ud.object(forKey: "recordingIndicatorStyle") as? String
+        let legacyMiniStatusBar = ud.object(forKey: "miniStatusBar") == nil
+            ? nil
+            : ud.bool(forKey: "miniStatusBar")
+        let recordingIndicatorStyle = RecordingIndicatorStyle.resolvedValue(
+            storedRawValue: storedIndicatorStyle,
+            legacyMiniStatusBar: legacyMiniStatusBar
+        )
+
         ud.register( // default defaults (used if not set)
             defaults: [
                 "audioFormat": AudioFormat.aac.rawValue,
@@ -245,6 +254,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
                 "videoFormat": VideoFormat.mp4.rawValue,
                 "pixelFormat": PixFormat.delault.rawValue,
                 "encoder": Encoder.defaultValue.rawValue,
+                "recordingIndicatorStyle": RecordingIndicatorStyle.defaultValue.rawValue,
                 "poSafeDelay": 1,
                 "saveDirectory": userDesktop as NSString,
                 "showMouse": true,
@@ -261,6 +271,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
                 "savedArea": [String: [String: CGFloat]]()
             ]
         )
+        ud.set(recordingIndicatorStyle.rawValue, forKey: "recordingIndicatorStyle")
         SCContext.migrateMicrophoneSelectionIfNeeded()
         
         if highRes == 0 { highRes = 2 }
@@ -269,8 +280,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
             if let error = error { print("Notification authorization denied: \(error.localizedDescription)") }
         }
         
-        statusBarItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusBarItem.button?.image = NSImage()
+        statusBarItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        if showMenubar {
+            configureIdleStatusBarItem(statusBarItem)
+        } else {
+            statusBarItem.isVisible = false
+        }
 
         mousePointer.title = "Mouse Pointer".local
         mousePointer.level = .screenSaver
@@ -437,14 +452,11 @@ func findNSSplitVIew(view: NSView?) -> NSSplitView? {
 }
 
 func getStatusBarWidth() -> CGFloat {
-    @AppStorage("miniStatusBar") var miniStatusBar: Bool = false
-    var width = 158.0
     switch SCContext.streamType {
-    case nil: width = miniStatusBar ? 36.0 : 36.0
-    case .systemaudio: width = miniStatusBar ? 68.0 : 114.0
-    default: width = miniStatusBar ? 78.0 : 158.0
+    case nil: return 36.0
+    case .systemaudio: return 114.0
+    default: return 158.0
     }
-    return width
 }
 
 func process(path: String, arguments: [String]) -> String? {
@@ -656,6 +668,22 @@ enum Encoder: String {
     case h264, h265
 
     static let defaultValue: Encoder = .h265
+}
+
+enum RecordingIndicatorStyle: String {
+    case full, discreet
+
+    static let defaultValue: RecordingIndicatorStyle = .full
+
+    static func resolvedValue(
+        storedRawValue: String?,
+        legacyMiniStatusBar: Bool?
+    ) -> RecordingIndicatorStyle {
+        if let storedRawValue {
+            return RecordingIndicatorStyle(rawValue: storedRawValue) ?? .defaultValue
+        }
+        return legacyMiniStatusBar == true ? .discreet : .defaultValue
+    }
 }
 
 enum StreamType: Int { case screen, window, windows, screenarea, systemaudio }

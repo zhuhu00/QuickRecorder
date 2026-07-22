@@ -22,6 +22,7 @@ private struct ModernPreferencesButton: View {
     var body: some View {
         Button(action: {
             closeMainWindow()
+            NSApp.activate(ignoringOtherApps: true)
             openSettings()
         }, label: {
             SelectorView(title: "Preferences".local, symbol: "gearshape").cornerRadius(8)
@@ -115,7 +116,7 @@ struct RecorderView: View {
     @AppStorage("includeMenuBar")   private var includeMenuBar: Bool = true
     @AppStorage("hideDesktopFiles") private var hideDesktopFiles: Bool = false
     @AppStorage("trimAfterRecord")  private var trimAfterRecord: Bool = false
-    @AppStorage("miniStatusBar")    private var miniStatusBar: Bool = false
+    @AppStorage("recordingIndicatorStyle") private var recordingIndicatorStyle: RecordingIndicatorStyle = .defaultValue
     @AppStorage("hideSelf")         private var hideSelf: Bool = true
     @AppStorage("preventSleep")     private var preventSleep: Bool = true
     @AppStorage("showPreview")      private var showPreview: Bool = true
@@ -138,7 +139,10 @@ struct RecorderView: View {
                 }
             }
             SGroupBox {
-                SToggle("Mini size Menu Bar controller", isOn: $miniStatusBar)
+                SPicker("Recording Indicator", selection: $recordingIndicatorStyle) {
+                    Text("Full Controls".local).tag(RecordingIndicatorStyle.full)
+                    Text("Discreet Stop Icon".local).tag(RecordingIndicatorStyle.discreet)
+                }
                 SDivider()
                 SToggle("Prevent Mac from sleeping while recording", isOn: $preventSleep)
                 SDivider()

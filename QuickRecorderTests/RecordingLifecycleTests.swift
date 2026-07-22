@@ -1,4 +1,5 @@
 import XCTest
+import CoreMedia
 @testable import QuickRecorder
 
 final class RecordingLifecycleTests: XCTestCase {
@@ -63,9 +64,56 @@ final class QuickRecorderConfigurationTests: XCTestCase {
         XCTAssertEqual(Encoder.defaultValue, .h265)
     }
 
+    func testRecordingIndicatorStyleDefaultsAndMigration() {
+        XCTAssertEqual(RecordingIndicatorStyle.defaultValue, .full)
+        XCTAssertEqual(
+            RecordingIndicatorStyle.resolvedValue(storedRawValue: nil, legacyMiniStatusBar: nil),
+            .full
+        )
+        XCTAssertEqual(
+            RecordingIndicatorStyle.resolvedValue(storedRawValue: nil, legacyMiniStatusBar: true),
+            .discreet
+        )
+        XCTAssertEqual(
+            RecordingIndicatorStyle.resolvedValue(storedRawValue: "full", legacyMiniStatusBar: true),
+            .full
+        )
+    }
+
     func testUnitTestRuntimeDetection() {
         XCTAssertTrue(AppRuntime.detectsUnitTests(in: ["XCTestConfigurationFilePath": "/tmp/tests.xctestconfiguration"]))
         XCTAssertFalse(AppRuntime.detectsUnitTests(in: [:]))
         XCTAssertTrue(AppRuntime.isRunningUnitTests)
+    }
+}
+
+final class WriterSessionGateTests: XCTestCase {
+    func testSamplesAreRejectedUntilSessionOpens() {
+        var gate = WriterSessionGate()
+        let sessionStart = CMTime(value: 100, timescale: 1_000)
+
+        XCTAssertFalse(gate.accepts(sessionStart))
+        XCTAssertTrue(gate.open(at: sessionStart))
+        XCTAssertTrue(gate.accepts(sessionStart))
+        XCTAssertTrue(gate.accepts(CMTime(value: 101, timescale: 1_000)))
+    }
+
+    func testSamplesBeforeSessionStartAreRejected() {
+        var gate = WriterSessionGate()
+        let sessionStart = CMTime(value: 100, timescale: 1_000)
+
+        XCTAssertTrue(gate.open(at: sessionStart))
+        XCTAssertFalse(gate.accepts(CMTime(value: 99, timescale: 1_000)))
+        XCTAssertFalse(gate.open(at: CMTime(value: 200, timescale: 1_000)))
+    }
+
+    func testClosingSessionRejectsLaterSamples() {
+        var gate = WriterSessionGate()
+        let sessionStart = CMTime(value: 100, timescale: 1_000)
+
+        XCTAssertTrue(gate.open(at: sessionStart))
+        gate.close()
+        XCTAssertFalse(gate.isOpen)
+        XCTAssertFalse(gate.accepts(CMTime(value: 101, timescale: 1_000)))
     }
 }

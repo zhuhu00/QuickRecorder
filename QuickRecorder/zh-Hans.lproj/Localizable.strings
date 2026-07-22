@@ -156,7 +156,10 @@
 "Failed to Record" = "录制失败";
 "Unable to create output folder!" = "无法创建输出文件夹!";
 "The output path is a file instead of a folder!"= "所选的保存位置是一个文件, 应该是文件夹!";
-"Mini size Menu Bar controller" = "使用迷你菜单栏控制器";
+"Recording Indicator" = "录制状态提示";
+"Full Controls" = "完整控制器";
+"Discreet Stop Icon" = "精简停止图标";
+"Recording — Click to Stop" = "正在录制——点击停止";
 "Check for Updates" = "立即检测程序更新";
 "Error" = "错误";
 "Already recording!" = "正在录制中!";

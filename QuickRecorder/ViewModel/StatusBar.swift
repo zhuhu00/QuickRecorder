@@ -8,6 +8,7 @@
 import SwiftUI
 
 private let statusBarPopover = NSPopover()
+private let recordingStatusViewIdentifier = NSUserInterfaceItemIdentifier("QuickRecorderRecordingStatusView")
 
 private final class StatusBarActionTarget: NSObject {
     static let shared = StatusBarActionTarget()
@@ -32,6 +33,24 @@ private func restoreCameraOverlayerIfNeeded() {
     camWindow.orderFrontRegardless()
 }
 
+func configureIdleStatusBarItem(_ item: NSStatusItem) {
+    guard let button = item.button else { return }
+
+    item.length = NSStatusItem.squareLength
+    let configuration = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium)
+    let image = NSImage(systemSymbolName: "record.circle", accessibilityDescription: "QuickRecorder")?
+        .withSymbolConfiguration(configuration)
+    image?.isTemplate = true
+    button.image = image
+    button.title = ""
+    button.imagePosition = .imageOnly
+    button.target = StatusBarActionTarget.shared
+    button.action = #selector(StatusBarActionTarget.togglePopover(_:))
+    button.toolTip = "QuickRecorder"
+    button.setAccessibilityLabel("QuickRecorder")
+    item.isVisible = true
+}
+
 class PopoverState: ObservableObject {
     static let shared = PopoverState()
     @Published var isShowing: Bool = false
@@ -39,15 +58,8 @@ class PopoverState: ObservableObject {
 }
 
 struct StatusBarItem: View {
-    @State private var isMainMenuShowing = false
-    @State private var isHovering = false
     @State private var recordingLength = "00:00"
-    //@State private var isPassed = SCContext.isPaused
     @StateObject private var popoverState = PopoverState.shared
-    //@NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @AppStorage("miniStatusBar") private var miniStatusBar: Bool = false
-    //@AppStorage("highlightMouse") private var highlightMouse: Bool = false
-    private var appDelegate = AppDelegate.shared
     
     var body: some View {
         HStack(spacing: 0) {
@@ -58,47 +70,7 @@ struct StatusBarItem: View {
                         .shadow(color: .black.opacity(0.3), radius: 4)
                         .cornerRadius(4)
                     HStack(spacing: 4) {
-                        if miniStatusBar {
-                            if isHovering && !SCContext.isStopping {
-                                Button(action: {
-                                    SCContext.stopRecording()
-                                }, label: {
-                                    ZStack {
-                                        Image(systemName: "circle.fill")
-                                            .font(.system(size: 10))
-                                            .foregroundStyle(.red)
-                                            .frame(width: 10, alignment: .center)
-                                        Image(systemName: "stop.circle.fill")
-                                            .font(.system(size: 16))
-                                            .foregroundStyle(.white)
-                                            .frame(width: 16, alignment: .center)
-                                    }
-                                }).buttonStyle(.plain)
-                                Button(action: {
-                                    SCContext.pauseRecording()
-                                }, label: {
-                                    Image(systemName: popoverState.isPaused ? "play.circle.fill" : "pause.circle.fill")
-                                        .font(.system(size: 16))
-                                        .foregroundStyle(.white)
-                                        .frame(width: 16, alignment: .center)
-                                }).buttonStyle(.plain)
-                                if SCContext.streamType != .systemaudio && SCContext.streamType != .window {
-                                    Button(action:{
-                                        popoverState.isShowing = true
-                                    }, label: {
-                                        Image(systemName: "camera.circle.fill")
-                                            .font(.system(size: 16))
-                                            .foregroundStyle(.white)
-                                            .frame(width: 16, alignment: .center)
-                                    }).buttonStyle(.plain)
-                                }
-                            } else {
-                                Text(SCContext.isStopping ? "Processing...".local : recordingLength)
-                                    .foregroundStyle(.white)
-                                    .font(.system(size: 15).monospaced())
-                                    .offset(x: 0.5)
-                            }
-                        } else if SCContext.isStopping {
+                        if SCContext.isStopping {
                             Text("Processing...".local)
                                 .foregroundStyle(.white)
                                 .font(.system(size: 13))
@@ -141,8 +113,7 @@ struct StatusBarItem: View {
                 }
                 .onReceive(updateTimer) { t in
                     recordingLength = SCContext.getRecordingLength()
-                    let timePassed = Date.now.timeIntervalSince(SCContext.startTime ?? t)
-                    if SCContext.autoStop != 0 && timePassed / 60 >= CGFloat(SCContext.autoStop) { SCContext.stopRecording() }
+                    stopAtAutomaticLimitIfNeeded(at: t)
                     if let visible = statusBarItem.button?.window?.occlusionState.contains(.visible) {
                         if visible { NSApp.windows.first(where: { $0.title == "Recording Controller".local })?.close(); return }
                         if SCContext.streamType != nil  && !visible && !(NSApp.windows.first(where: { $0.title == "Recording Controller".local })?.isVisible ?? false) {
@@ -157,82 +128,94 @@ struct StatusBarItem: View {
                         }
                     }
                 }
-                if !miniStatusBar {
-                    if SCContext.streamType != .systemaudio {
-                        Button(action:{
-                            popoverState.isShowing = true
-                        }, label: {
-                            ZStack {
-                                Rectangle()
-                                    .fill(SCContext.isCameraRunning() ? Color.mygreen : .gray)
-                                    .shadow(color: .black.opacity(0.3), radius: 4)
-                                    .cornerRadius(4)
-                                Image("camera")
-                                    .foregroundStyle(.white)
-                            }.frame(width: 36).padding([.leading,.trailing], 4)
-                        }).buttonStyle(.plain)
-                    }
-                }
-            } else if ud.bool(forKey: "showMenubar") {
-                Button(action: {
-                    popoverState.isShowing = true
-                }, label: {
-                    ZStack {
-                        Color.white.opacity(0.0001)
-                        Image(systemName: "dot.circle.and.hand.point.up.left.fill")
-                            .font(.system(size: 14, weight: .medium))
-                            .offset(y: 1)
-                    }
-                })
-                .buttonStyle(.plain)
-                .popover(isPresented: $popoverState.isShowing, arrowEdge: .bottom) {
-                    ContentViewNew().onAppear { restoreCameraOverlayerIfNeeded() }
+                if SCContext.streamType != .systemaudio {
+                    Button(action:{
+                        popoverState.isShowing = true
+                    }, label: {
+                        ZStack {
+                            Rectangle()
+                                .fill(SCContext.isCameraRunning() ? Color.mygreen : .gray)
+                                .shadow(color: .black.opacity(0.3), radius: 4)
+                                .cornerRadius(4)
+                            Image("camera")
+                                .foregroundStyle(.white)
+                        }.frame(width: 36).padding([.leading,.trailing], 4)
+                    }).buttonStyle(.plain)
                 }
             }
         }
         .onTapGesture {}
         .onHover { hovering in
-            isHovering = hovering
             hideMousePointer = hovering
             hideScreenMagnifier = hovering
         }
     }
 }
 
+struct DiscreetRecordingStatusBarItem: View {
+    var body: some View {
+        Button {
+            guard !SCContext.isStopping else { return }
+            SCContext.stopRecording()
+        } label: {
+            Image(systemName: SCContext.isStopping ? "ellipsis.circle" : "record.circle.fill")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(SCContext.isStopping ? Color.secondary : Color.red)
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(SCContext.isStopping)
+        .help(SCContext.isStopping ? "Processing...".local : "Recording — Click to Stop".local)
+        .onReceive(updateTimer) { date in
+            stopAtAutomaticLimitIfNeeded(at: date)
+        }
+    }
+}
+
+private func stopAtAutomaticLimitIfNeeded(at date: Date) {
+    guard !SCContext.isStopping, SCContext.autoStop != 0 else { return }
+    let timePassed = Date.now.timeIntervalSince(SCContext.startTime ?? date)
+    if timePassed / 60 >= CGFloat(SCContext.autoStop) {
+        SCContext.stopRecording()
+    }
+}
+
 func updateStatusBar() {
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+        guard let button = statusBarItem.button else { return }
+
+        button.subviews
+            .filter { $0.identifier == recordingStatusViewIdentifier }
+            .forEach { $0.removeFromSuperview() }
+
         if SCContext.streamType == nil && !ud.bool(forKey: "showMenubar") {
             statusBarPopover.performClose(nil)
             statusBarItem.isVisible = false
             return
         }
-        guard let button = statusBarItem.button else { return }
-
-        button.subviews.forEach { $0.removeFromSuperview() }
-        button.image = nil
-        button.title = ""
 
         if SCContext.streamType == nil {
-            statusBarItem.length = NSStatusItem.squareLength
-            let configuration = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium)
-            let image = NSImage(systemSymbolName: "record.circle", accessibilityDescription: "QuickRecorder")?
-                .withSymbolConfiguration(configuration)
-            image?.isTemplate = true
-            button.image = image
-            button.imagePosition = .imageOnly
-            button.target = StatusBarActionTarget.shared
-            button.action = #selector(StatusBarActionTarget.togglePopover(_:))
-            button.toolTip = "QuickRecorder"
-            button.setAccessibilityLabel("QuickRecorder")
-            statusBarItem.isVisible = true
+            configureIdleStatusBarItem(statusBarItem)
             return
         }
 
         statusBarPopover.performClose(nil)
+        button.image = nil
+        button.title = ""
         button.target = nil
         button.action = nil
-        statusBarItem.length = getStatusBarWidth()
-        let iconView = NSHostingView(rootView: StatusBarItem().padding(.top, -2))
+        let indicatorStyle = RecordingIndicatorStyle(
+            rawValue: ud.string(forKey: "recordingIndicatorStyle") ?? ""
+        ) ?? .defaultValue
+        let isDiscreet = indicatorStyle == .discreet
+        if isDiscreet { controlPanel.close() }
+        statusBarItem.length = isDiscreet ? NSStatusItem.squareLength : getStatusBarWidth()
+        let rootView = isDiscreet
+            ? AnyView(DiscreetRecordingStatusBarItem())
+            : AnyView(StatusBarItem().padding(.top, -2))
+        let iconView = NSHostingView(rootView: rootView)
+        iconView.identifier = recordingStatusViewIdentifier
         iconView.translatesAutoresizingMaskIntoConstraints = false
         button.addSubview(iconView)
         NSLayoutConstraint.activate([

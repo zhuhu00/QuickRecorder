@@ -14,6 +14,29 @@ import SwiftLAME
 import SwiftUI
 import AECAudioStream
 
+struct WriterSessionGate {
+    private(set) var sourceTime: CMTime?
+
+    var isOpen: Bool { sourceTime != nil }
+
+    mutating func open(at sourceTime: CMTime) -> Bool {
+        guard self.sourceTime == nil,
+              sourceTime.flags.contains(.valid) else { return false }
+        self.sourceTime = sourceTime
+        return true
+    }
+
+    mutating func close() {
+        sourceTime = nil
+    }
+
+    func accepts(_ presentationTime: CMTime) -> Bool {
+        guard let sourceTime,
+              presentationTime.flags.contains(.valid) else { return false }
+        return CMTimeCompare(presentationTime, sourceTime) >= 0
+    }
+}
+
 @MainActor
 private final class LegacyAssetExportJob {
     private let session: AVAssetExportSession
@@ -70,6 +93,8 @@ class SCContext {
     private static let recordingTimelineLock = NSLock()
     private static var activePauseStartedAt: CMTime?
     private static var completedPauseRanges = [CMTimeRange]()
+    private static let writerSessionLock = NSLock()
+    private static var writerSessionGate = WriterSessionGate()
     static var screenArea: NSRect?
     static let audioEngine = AVAudioEngine()
     static let AECEngine = AECAudioStream(sampleRate: 48000)
@@ -478,14 +503,38 @@ class SCContext {
     }
 
     static func appendMicrophoneSample(_ sampleBuffer: CMSampleBuffer) {
-        guard startTime != nil,
-              let adjustedSample = sampleBufferForRecording(sampleBuffer),
+        guard let adjustedSample = sampleBufferForRecording(sampleBuffer) else { return }
+        let presentationTime = CMSampleBufferGetPresentationTimeStamp(adjustedSample)
+
+        writerSessionLock.lock()
+        defer { writerSessionLock.unlock() }
+        guard writerSessionGate.accepts(presentationTime),
+              let writer = vW,
+              writer.status == .writing,
               let microphoneInput = micInput,
               microphoneInput.isReadyForMoreMediaData else { return }
         if !microphoneInput.append(adjustedSample) {
-            let error = vW?.error?.localizedDescription ?? "Unknown Error".local
+            let error = writer.error?.localizedDescription ?? "Unknown Error".local
             print("Failed to append microphone sample: \(error)")
         }
+    }
+
+    static func startWriterSessionIfNeeded(at sourceTime: CMTime) -> Bool {
+        writerSessionLock.lock()
+        defer { writerSessionLock.unlock() }
+
+        if writerSessionGate.isOpen { return true }
+        guard sourceTime.flags.contains(.valid),
+              let writer = vW,
+              writer.status == .writing else { return false }
+        writer.startSession(atSourceTime: sourceTime)
+        return writerSessionGate.open(at: sourceTime)
+    }
+
+    static func resetWriterSession() {
+        writerSessionLock.lock()
+        writerSessionGate.close()
+        writerSessionLock.unlock()
     }
 
     static func setMicrophoneCaptureMode(_ mode: MicrophoneCaptureMode) {
@@ -691,6 +740,7 @@ class SCContext {
             print("Screen capture stopped with error: \(streamError.localizedDescription)")
         }
 
+        resetWriterSession()
         if context.recordedMicrophone {
             stopMicrophoneCapture()
             context.microphoneInput?.markAsFinished()
@@ -823,6 +873,7 @@ class SCContext {
 
     private static func completeRecordingLifecycle() {
         DispatchQueue.main.async {
+            resetWriterSession()
             resetRecordingTimeline()
             PopoverState.shared.isPaused = false
             hideMousePointer = false
