@@ -198,6 +198,11 @@
 "Would you like to use H.265 format for better video quality and smaller file size?" = "是否使用 H.265 編碼以獲得更好的錄影畫質和更小的檔案體積?";
 "QuickRecorder needs this permission to record your camera." = "QuickRecorder 需要此權限以錄製攝像頭畫面。";
 "Select Window Directly" = "直接點選視窗";
+"Microphone Changed" = "麥克風已切換";
+"Microphone Disconnected" = "麥克風已斷開";
+"The selected microphone is unavailable. Recording will use the default microphone." = "所選麥克風不可用，錄製將使用預設麥克風。";
+"The selected microphone was disconnected. Recording continues with the default microphone." = "所選麥克風已斷開，錄製將繼續使用預設麥克風。";
+"The default microphone is unavailable. System audio and video recording will continue without the microphone." = "預設麥克風不可用，系統音訊和影片將繼續錄製，但不再錄製麥克風。";
 
 // Please don't translate the following warning strings, it will make it difficult for me to read the logs
 "failed to fetch file for size indicator: %@" = "获取文件大小失败: ";

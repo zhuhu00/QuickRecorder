@@ -25,10 +25,11 @@ class SCContext {
     static var isMagnifierEnabled = false
     static var saveFrame = false
     static var isPaused = false
-    static var isResume = false
     static var isSkipFrame = false
     static var lastPTS: CMTime?
-    static var timeOffset = CMTimeMake(value: 0, timescale: 0)
+    private static let recordingTimelineLock = NSLock()
+    private static var activePauseStartedAt: CMTime?
+    private static var completedPauseRanges = [CMTimeRange]()
     static var screenArea: NSRect?
     static let audioEngine = AVAudioEngine()
     static let AECEngine = AECAudioStream(sampleRate: 48000)
@@ -46,6 +47,14 @@ class SCContext {
     static var screen: SCDisplay?
     static var window: [SCWindow]?
     static var streamType: StreamType?
+    enum MicrophoneCaptureMode {
+        case none
+        case defaultInput
+        case defaultInputWithAEC
+        case selectedDevice
+    }
+    private static let microphoneCaptureLock = NSLock()
+    private static var microphoneCaptureMode = MicrophoneCaptureMode.none
     static let streamOutputQueue = DispatchQueue(
         label: "io.github.zhuhu00.QuickRecorder.stream-output",
         qos: .userInitiated
@@ -298,7 +307,7 @@ class SCContext {
         formatter.allowedUnits = [.minute, .second]
         formatter.zeroFormattingBehavior = .pad
         formatter.unitsStyle = .positional
-        if isPaused { return formatter.string(from: timePassed) ?? "Unknown".local }
+        if recordingIsPaused() { return formatter.string(from: timePassed) ?? "Unknown".local }
         timePassed = Date.now.timeIntervalSince(startTime ?? Date.now)
         return formatter.string(from: timePassed) ?? "Unknown".local
     }
@@ -306,14 +315,123 @@ class SCContext {
     static func isCameraRunning() -> Bool {
         return captureSession?.isRunning ?? false
     }
+
+    static func resetRecordingTimeline() {
+        recordingTimelineLock.lock()
+        isPaused = false
+        activePauseStartedAt = nil
+        completedPauseRanges.removeAll()
+        recordingTimelineLock.unlock()
+    }
+
+    static func recordingIsPaused() -> Bool {
+        recordingTimelineLock.lock()
+        let paused = isPaused
+        recordingTimelineLock.unlock()
+        return paused
+    }
     
     static func pauseRecording() {
         guard !isStopping else { return }
-        isPaused.toggle()
-        PopoverState.shared.isPaused = isPaused
-        if !isPaused {
-            isResume = true
+        let now = CMClockGetTime(CMClockGetHostTimeClock())
+        let elapsed = Date.now.timeIntervalSince(startTime ?? Date.now)
+
+        recordingTimelineLock.lock()
+        if isPaused {
+            if let pauseStart = activePauseStartedAt,
+               CMTimeCompare(now, pauseStart) > 0 {
+                let pauseRange = CMTimeRange(start: pauseStart, end: now)
+                completedPauseRanges.append(pauseRange)
+            }
+            activePauseStartedAt = nil
+            isPaused = false
+        } else {
+            activePauseStartedAt = now
+            isPaused = true
+        }
+        let paused = isPaused
+        recordingTimelineLock.unlock()
+
+        PopoverState.shared.isPaused = paused
+        if paused {
+            timePassed = elapsed
+        } else {
             startTime = Date.now.addingTimeInterval(-1) - SCContext.timePassed
+        }
+    }
+
+    static func sampleBufferForRecording(_ sampleBuffer: CMSampleBuffer) -> CMSampleBuffer? {
+        let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+
+        recordingTimelineLock.lock()
+        let activePauseStart = activePauseStartedAt
+        let pauseRanges = completedPauseRanges
+        recordingTimelineLock.unlock()
+
+        guard presentationTime.flags.contains(.valid) else {
+            return activePauseStart == nil ? sampleBuffer : nil
+        }
+        if let activePauseStart,
+           CMTimeCompare(presentationTime, activePauseStart) >= 0 {
+            return nil
+        }
+
+        var offset = CMTime.zero
+        for pauseRange in pauseRanges {
+            let pauseEnd = CMTimeRangeGetEnd(pauseRange)
+            if CMTimeCompare(presentationTime, pauseRange.start) >= 0,
+               CMTimeCompare(presentationTime, pauseEnd) < 0 {
+                return nil
+            }
+            if CMTimeCompare(presentationTime, pauseEnd) >= 0 {
+                offset = CMTimeAdd(offset, pauseRange.duration)
+            }
+        }
+
+        guard CMTimeCompare(offset, .zero) > 0 else { return sampleBuffer }
+        return adjustTime(sample: sampleBuffer, by: offset)
+    }
+
+    static func appendMicrophoneSample(_ sampleBuffer: CMSampleBuffer) {
+        guard startTime != nil,
+              let adjustedSample = sampleBufferForRecording(sampleBuffer),
+              let microphoneInput = micInput,
+              microphoneInput.isReadyForMoreMediaData else { return }
+        if !microphoneInput.append(adjustedSample) {
+            let error = vW?.error?.localizedDescription ?? "Unknown Error".local
+            print("Failed to append microphone sample: \(error)")
+        }
+    }
+
+    static func setMicrophoneCaptureMode(_ mode: MicrophoneCaptureMode) {
+        microphoneCaptureLock.lock()
+        microphoneCaptureMode = mode
+        microphoneCaptureLock.unlock()
+    }
+
+    static func isCapturingSelectedMicrophone() -> Bool {
+        microphoneCaptureLock.lock()
+        let isSelectedDevice = microphoneCaptureMode == .selectedDevice
+        microphoneCaptureLock.unlock()
+        return isSelectedDevice
+    }
+
+    static func stopMicrophoneCapture() {
+        microphoneCaptureLock.lock()
+        let mode = microphoneCaptureMode
+        microphoneCaptureMode = .none
+        microphoneCaptureLock.unlock()
+
+        switch mode {
+        case .defaultInputWithAEC:
+            try? AECEngine.stopAudioUnit()
+        case .defaultInput:
+            audioEngine.inputNode.removeTap(onBus: 0)
+            audioEngine.stop()
+        case .selectedDevice:
+            AudioRecorder.shared.stopAndDrain()
+        case .none:
+            break
         }
     }
 
@@ -415,8 +533,6 @@ class SCContext {
         let outputPath: String?
         let systemAudioPath: String?
         let recordedMicrophone: Bool
-        let microphoneDevice: String
-        let enableAEC: Bool
         let recordWindowSound: Bool
         let shouldRemuxAudio: Bool
         let shouldShowPreview: Bool
@@ -460,9 +576,7 @@ class SCContext {
             microphoneInput: micInput,
             outputPath: filePath,
             systemAudioPath: filePath1,
-            recordedMicrophone: ud.bool(forKey: "recordMic"),
-            microphoneDevice: ud.string(forKey: "micDevice") ?? "default",
-            enableAEC: ud.bool(forKey: "enableAEC"),
+            recordedMicrophone: micInput != nil,
             recordWindowSound: ud.bool(forKey: "recordWinSound"),
             shouldRemuxAudio: ud.bool(forKey: "remuxAudio"),
             shouldShowPreview: ud.bool(forKey: "showPreview"),
@@ -494,16 +608,7 @@ class SCContext {
         }
 
         if context.recordedMicrophone {
-            if context.microphoneDevice == "default" {
-                if context.enableAEC {
-                    try? AECEngine.stopAudioUnit()
-                } else {
-                    audioEngine.inputNode.removeTap(onBus: 0)
-                    audioEngine.stop()
-                }
-            } else {
-                AudioRecorder.shared.stopAndDrain()
-            }
+            stopMicrophoneCapture()
             context.microphoneInput?.markAsFinished()
         }
 
@@ -635,8 +740,8 @@ class SCContext {
     private static func completeRecordingLifecycle() {
         DispatchQueue.main.async {
             isStartingCapture = false
-            isPaused = false
-            isResume = false
+            resetRecordingTimeline()
+            PopoverState.shared.isPaused = false
             hideMousePointer = false
             hideScreenMagnifier = false
             lastPTS = nil
@@ -860,18 +965,44 @@ class SCContext {
     
     static func adjustTime(sample: CMSampleBuffer, by offset: CMTime) -> CMSampleBuffer? {
         guard CMSampleBufferGetFormatDescription(sample) != nil else { return nil }
-        
-        var timingInfo = [CMSampleTimingInfo](repeating: CMSampleTimingInfo(), count: Int(CMSampleBufferGetNumSamples(sample)))
-        CMSampleBufferGetSampleTimingInfoArray(sample, entryCount: timingInfo.count, arrayToFill: &timingInfo, entriesNeededOut: nil)
-        
-        for i in 0..<timingInfo.count {
-            timingInfo[i].decodeTimeStamp = CMTimeSubtract(timingInfo[i].decodeTimeStamp, offset)
-            timingInfo[i].presentationTimeStamp = CMTimeSubtract(timingInfo[i].presentationTimeStamp, offset)
+
+        var timingEntryCount = 0
+        guard CMSampleBufferGetSampleTimingInfoArray(
+            sample,
+            entryCount: 0,
+            arrayToFill: nil,
+            entriesNeededOut: &timingEntryCount
+        ) == noErr, timingEntryCount > 0 else { return nil }
+
+        var timingInfo = [CMSampleTimingInfo](
+            repeating: CMSampleTimingInfo(),
+            count: timingEntryCount
+        )
+        guard CMSampleBufferGetSampleTimingInfoArray(
+            sample,
+            entryCount: timingInfo.count,
+            arrayToFill: &timingInfo,
+            entriesNeededOut: nil
+        ) == noErr else { return nil }
+
+        for index in timingInfo.indices {
+            if timingInfo[index].decodeTimeStamp.flags.contains(.valid) {
+                timingInfo[index].decodeTimeStamp = CMTimeSubtract(timingInfo[index].decodeTimeStamp, offset)
+            }
+            if timingInfo[index].presentationTimeStamp.flags.contains(.valid) {
+                timingInfo[index].presentationTimeStamp = CMTimeSubtract(timingInfo[index].presentationTimeStamp, offset)
+            }
         }
-        
+
         var outSampleBuffer: CMSampleBuffer?
-        CMSampleBufferCreateCopyWithNewTiming(allocator: nil, sampleBuffer: sample, sampleTimingEntryCount: timingInfo.count, sampleTimingArray: &timingInfo, sampleBufferOut: &outSampleBuffer)
-        
+        guard CMSampleBufferCreateCopyWithNewTiming(
+            allocator: nil,
+            sampleBuffer: sample,
+            sampleTimingEntryCount: timingInfo.count,
+            sampleTimingArray: &timingInfo,
+            sampleBufferOut: &outSampleBuffer
+        ) == noErr else { return nil }
+
         return outSampleBuffer
     }
     

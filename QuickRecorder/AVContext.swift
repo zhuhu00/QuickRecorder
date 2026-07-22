@@ -68,7 +68,7 @@ extension AppDelegate {
     
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         /* 保留后续以作他用
-        if !SCContext.isPaused && ud.string(forKey: "recordCam") != "" {
+        if !SCContext.recordingIsPaused() && ud.string(forKey: "recordCam") != "" {
             if sampleBuffer.isValid { SCContext.isCameraReady = true }
             if sampleBuffer.imageBuffer != nil { SCContext.frameCache = sampleBuffer }
         }*/

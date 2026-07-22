@@ -196,13 +196,11 @@ extension AppDelegate {
     }
 
     func record(filter: SCContentFilter, fastStart: Bool = true) async {
-        SCContext.timeOffset = CMTimeMake(value: 0, timescale: 0)
-        SCContext.isPaused = false
-        SCContext.isResume = false
+        SCContext.resetRecordingTimeline()
         
         let audioOnly = SCContext.streamType == .systemaudio
         let shouldRecordMicrophone = recordMic
-        let selectedMicrophone = micDevice
+        let selectedMicrophone = shouldRecordMicrophone ? resolveMicrophoneSelection(micDevice) : micDevice
         let selectedAEC = enableAEC
         var activeStream: SCStream?
         var createdOutputURL: URL?
@@ -387,8 +385,6 @@ extension AppDelegate {
                 outputURL: createdOutputURL,
                 microphoneStarted: microphoneStarted,
                 captureStartAttempted: captureStartAttempted,
-                microphoneDevice: selectedMicrophone,
-                enableAEC: selectedAEC,
                 error: error
             )
             return
@@ -612,11 +608,10 @@ extension AppDelegate {
                 }
                 do {
                     try SCContext.AECEngine.startAudioStream(enableAEC: enableAEC, duckingLevel: level, audioBufferHandler: { pcmBuffer in
-                        if SCContext.isPaused || SCContext.startTime == nil { return }
-                        if SCContext.micInput.isReadyForMoreMediaData {
-                            SCContext.micInput.append(pcmBuffer.asSampleBuffer!)
-                        }
+                        guard let sampleBuffer = pcmBuffer.asSampleBuffer else { return }
+                        SCContext.appendMicrophoneSample(sampleBuffer)
                     })
+                    SCContext.setMicrophoneCaptureMode(.defaultInputWithAEC)
                 } catch {
                     try? SCContext.AECEngine.stopAudioUnit()
                     throw error
@@ -628,13 +623,12 @@ extension AppDelegate {
                     throw RecordingStartError.microphoneUnavailable
                 }
                 input.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { buffer, time in
-                    if SCContext.isPaused || SCContext.startTime == nil { return }
-                    if SCContext.micInput.isReadyForMoreMediaData {
-                        SCContext.micInput.append(buffer.asSampleBuffer!)
-                    }
+                    guard let sampleBuffer = buffer.asSampleBuffer else { return }
+                    SCContext.appendMicrophoneSample(sampleBuffer)
                 }
                 do {
                     try SCContext.audioEngine.start()
+                    SCContext.setMicrophoneCaptureMode(.defaultInput)
                 } catch {
                     input.removeTap(onBus: 0)
                     SCContext.audioEngine.stop()
@@ -642,8 +636,53 @@ extension AppDelegate {
                 }
             }
         } else {
-            try AudioRecorder.shared.setupAudioCapture()
-            try AudioRecorder.shared.start()
+            do {
+                try AudioRecorder.shared.setupAudioCapture()
+                SCContext.setMicrophoneCaptureMode(.selectedDevice)
+                try AudioRecorder.shared.start()
+            } catch {
+                SCContext.stopMicrophoneCapture()
+                ud.set("default", forKey: "micDevice")
+                try startMicRecording(microphoneDevice: "default", enableAEC: enableAEC)
+                SCContext.showNotification(
+                    title: "Microphone Changed".local,
+                    body: "The selected microphone is unavailable. Recording will use the default microphone.".local,
+                    id: "quickrecorder.microphone-fallback.\(UUID().uuidString)"
+                )
+            }
+        }
+    }
+
+    private func resolveMicrophoneSelection(_ microphoneDevice: String) -> String {
+        guard microphoneDevice != "default",
+              !SCContext.getMicrophone().contains(where: { $0.localizedName == microphoneDevice }) else {
+            return microphoneDevice
+        }
+        ud.set("default", forKey: "micDevice")
+        return "default"
+    }
+
+    func handleSelectedMicrophoneDisconnect() {
+        guard SCContext.streamType != nil,
+              !SCContext.isStopping,
+              SCContext.isCapturingSelectedMicrophone() else { return }
+
+        SCContext.stopMicrophoneCapture()
+        ud.set("default", forKey: "micDevice")
+        do {
+            try startMicRecording(microphoneDevice: "default", enableAEC: enableAEC)
+            SCContext.showNotification(
+                title: "Microphone Changed".local,
+                body: "The selected microphone was disconnected. Recording continues with the default microphone.".local,
+                id: "quickrecorder.microphone-fallback.\(UUID().uuidString)"
+            )
+        } catch {
+            SCContext.setMicrophoneCaptureMode(.none)
+            SCContext.showNotification(
+                title: "Microphone Disconnected".local,
+                body: "The default microphone is unavailable. System audio and video recording will continue without the microphone.".local,
+                id: "quickrecorder.microphone-disconnected.\(UUID().uuidString)"
+            )
         }
     }
 
@@ -652,8 +691,6 @@ extension AppDelegate {
         outputURL: URL?,
         microphoneStarted: Bool,
         captureStartAttempted: Bool,
-        microphoneDevice: String,
-        enableAEC: Bool,
         error: Error
     ) async {
         if captureStartAttempted, let stream {
@@ -662,16 +699,7 @@ extension AppDelegate {
         SCContext.streamOutputQueue.sync {}
 
         if microphoneStarted {
-            if microphoneDevice == "default" {
-                if enableAEC {
-                    try? SCContext.AECEngine.stopAudioUnit()
-                } else {
-                    SCContext.audioEngine.inputNode.removeTap(onBus: 0)
-                    SCContext.audioEngine.stop()
-                }
-            } else {
-                AudioRecorder.shared.stopAndDrain()
-            }
+            SCContext.stopMicrophoneCapture()
         }
 
         SCContext.audioFile = nil
@@ -704,8 +732,8 @@ extension AppDelegate {
             SCContext.firstFrame = nil
             SCContext.lastPTS = nil
             SCContext.timePassed = 0
-            SCContext.isPaused = false
-            SCContext.isResume = false
+            SCContext.resetRecordingTimeline()
+            PopoverState.shared.isPaused = false
             updateStatusBar()
             _ = createAlert(
                 level: .critical,
@@ -790,21 +818,8 @@ extension AppDelegate {
                 //                CGImageDestinationFinalize(destination)
             }
         }
-        if SCContext.isPaused { return }
         guard sampleBuffer.isValid else { return }
-        var SampleBuffer = sampleBuffer
-        if SCContext.isResume {
-            SCContext.isResume = false
-            var pts = CMSampleBufferGetPresentationTimeStamp(SampleBuffer)
-            guard let last = SCContext.lastPTS else { return }
-            if last.flags.contains(CMTimeFlags.valid) {
-                if SCContext.timeOffset.flags.contains(CMTimeFlags.valid) { pts = CMTimeSubtract(pts, SCContext.timeOffset) }
-                let off = CMTimeSubtract(pts, last)
-                print("adding \(CMTimeGetSeconds(off)) to \(CMTimeGetSeconds(SCContext.timeOffset)) (pts \(CMTimeGetSeconds(SCContext.timeOffset)))")
-                if SCContext.timeOffset.value == 0 { SCContext.timeOffset = off } else { SCContext.timeOffset = CMTimeAdd(SCContext.timeOffset, off) }
-            }
-            SCContext.lastPTS?.flags = []
-        }
+        guard let SampleBuffer = SCContext.sampleBufferForRecording(sampleBuffer) else { return }
         switch outputType {
         case .screen:
             if (SCContext.screen == nil && SCContext.window == nil) || SCContext.streamType == .systemaudio { break }
@@ -818,7 +833,6 @@ extension AppDelegate {
                 SCContext.startTime = Date.now
                 SCContext.vW.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(SampleBuffer))
             }
-            if (SCContext.timeOffset.value > 0) { SampleBuffer = SCContext.adjustTime(sample: SampleBuffer, by: SCContext.timeOffset) ?? sampleBuffer }
             var pts = CMSampleBufferGetPresentationTimeStamp(SampleBuffer)
             let dur = CMSampleBufferGetDuration(SampleBuffer)
             if (dur.value > 0) { pts = CMTimeAdd(pts, dur) }
@@ -888,6 +902,7 @@ class AudioRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private let audioQueue = DispatchQueue(label: "io.github.zhuhu00.QuickRecorder.microphone-output")
 
     func setupAudioCapture() throws {
+        NotificationCenter.default.removeObserver(self, name: AVCaptureDevice.wasDisconnectedNotification, object: nil)
         let session = AVCaptureSession()
 
         // Get the default audio device (microphone)
@@ -920,6 +935,12 @@ class AudioRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         captureSession = session
         audioInput = input
         audioDataOutput = output
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(audioDeviceWasDisconnected(_:)),
+            name: AVCaptureDevice.wasDisconnectedNotification,
+            object: audioDevice
+        )
     }
     
     func start() throws {
@@ -934,6 +955,7 @@ class AudioRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     }
     
     func stopAndDrain() {
+        NotificationCenter.default.removeObserver(self, name: AVCaptureDevice.wasDisconnectedNotification, object: nil)
         if let session = captureSession {
             if session.isRunning { session.stopRunning() }
         }
@@ -945,9 +967,12 @@ class AudioRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        if SCContext.isPaused || SCContext.startTime == nil { return }
-        if SCContext.micInput.isReadyForMoreMediaData {
-            SCContext.micInput.append(sampleBuffer)
+        SCContext.appendMicrophoneSample(sampleBuffer)
+    }
+
+    @objc private func audioDeviceWasDisconnected(_ notification: Notification) {
+        DispatchQueue.main.async {
+            AppDelegate.shared.handleSelectedMicrophoneDisconnect()
         }
     }
 }
