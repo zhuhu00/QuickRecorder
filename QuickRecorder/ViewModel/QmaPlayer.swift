@@ -30,7 +30,7 @@ private enum QMAExportError: LocalizedError {
 }
 
 private struct ActivityIndicator: View {
-    @State private var currentDegrees = 0.0
+    @State private var isAnimating = false
 
     private let colorGradient = LinearGradient(
         gradient: Gradient(colors: [
@@ -49,14 +49,10 @@ private struct ActivityIndicator: View {
             .trim(from: 0.0, to: 0.85)
             .stroke(colorGradient, style: StrokeStyle(lineWidth: 3))
             .frame(width: 18, height: 18)
-            .rotationEffect(Angle(degrees: currentDegrees))
-            .onAppear {
-                Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
-                    withAnimation {
-                        currentDegrees += 10
-                    }
-                }
-            }
+            .rotationEffect(.degrees(isAnimating ? 360 : 0))
+            .animation(.linear(duration: 1).repeatForever(autoreverses: false), value: isAnimating)
+            .onAppear { isAnimating = true }
+            .onDisappear { isAnimating = false }
     }
 }
 

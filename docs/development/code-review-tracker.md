@@ -59,7 +59,7 @@
 | QR-015 | P2 | 已完成 | QMA 导出 | 有界重试、较长轨时长和失败清理已通过实机验证 |
 | QR-016 | P2 | 已完成 | 应用状态 | adaptor 实例与 `AppDelegate.shared` 已统一并通过实机回归 |
 | QR-017 | P2 | 已完成 | 构建分发 | Release 已移除 `get-task-allow`，Debug 调试权限保持不变 |
-| QR-018 | P3 | 待处理 | QMA 界面 | 导出指示器的重复 Timer 没有失效机制 |
+| QR-018 | P3 | 已完成 | QMA 界面 | 导出指示器已改用随视图生命周期启停的 SwiftUI 动画 |
 
 ## 4. 详细问题与验收标准
 
@@ -328,10 +328,11 @@
 ### QR-018：QMA 导出指示器 Timer 不会失效
 
 - 优先级：`P3`
-- 状态：`待处理`
+- 状态：`已完成`
 - 证据：`QuickRecorder/ViewModel/QmaPlayer.swift:12-40`
 - 问题：`ActivityIndicator.onAppear` 每次创建一个 50 ms 重复 Timer，但没有保存引用或在 `onDisappear` 时 invalidate。反复导出或重建视图后可能累积 Timer 和动画更新，带来无意义的 CPU 占用和对象生命周期延长。
-- 修复方向：优先改用 SwiftUI `repeatForever` 动画或 `TimelineView`；若保留 Timer，则由对象持有并在视图消失时明确停止。
+- 当前修复：移除 Foundation 重复 Timer，改用由 `isAnimating` 驱动的 SwiftUI 线性 `repeatForever` 动画；视图出现时启动、消失时恢复状态，不再留下独立计时器。
+- 当前验证：源码中不再存在 QMA 指示器 `Timer.scheduledTimer`；Debug/Release 构建检查通过。
 - 验收标准：连续打开、导出和关闭 QMA 窗口后不累积活动 Timer，导出动画仍能正常开始和停止。
 
 ## 5. 建议兼容性矩阵
@@ -403,6 +404,7 @@
 
 | 日期 | 变更 | 关联项 |
 | --- | --- | --- |
+| 2026-07-22 | QMA 导出指示器移除无失效机制的 50 ms 重复 Timer，改用随视图生命周期启停的 SwiftUI 动画 | QR-018 |
 | 2026-07-22 | 删除精确系统版本与不可达兼容分支，迁移 SwiftUI、AVFoundation 和截图 API；普通 Debug/Release 项目警告由 44 条降至 0 | QR-013、QR-010 |
 | 2026-07-22 | Project、App Target、中英文 README 与构建产物统一为 Apple Silicon / macOS 14.2+；Debug、Release、Analyze、签名和固定调试版启动验证通过 | QR-006 |
 | 2026-07-22 | 用户确认指定 XIBERIA 录音和录制中断连默认输入降级均正常，QR-009 标记完成 | QR-009 |
