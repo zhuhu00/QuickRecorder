@@ -51,10 +51,10 @@
 | QR-007 | P2 | 进行中 | 视频配置 | 已修复无效 `CMTime`，等待 30/60 FPS 真实录制验证 |
 | QR-008 | P2 | 已移除 | 手机录制 | Mobile Device 功能已整体删除，错误通知路径不再存在 |
 | QR-009 | P2 | 已完成 | 麦克风 | 已改用稳定 `uniqueID`，指定输入录制与断连默认输入降级均通过实测 |
-| QR-010 | P2 | 待处理 | 工程质量 | 没有应用测试 Target 或 CI，Swift 6 并发迁移债务较高 |
+| QR-010 | P2 | 进行中 | 工程质量 | 普通构建项目警告已清零，仍需测试 Target、CI 和严格并发基线治理 |
 | QR-011 | P2 | 进行中 | 构建分发 | Release 已限定 arm64 并使用开发签名，等待干净 Mac 手动放行验证 |
 | QR-012 | P3 | 待处理 | 开源发布 | README、版本、AGPL 和第三方依赖声明尚未按 Fork 发布整理 |
-| QR-013 | P3 | 待处理 | 系统兼容 | 使用精确主版本判断，较新 macOS 会遗漏部分分支逻辑 |
+| QR-013 | P3 | 已完成 | 系统兼容 | 已删除精确主版本判断和不可达分支，并迁移旧 SwiftUI/AVFoundation/截图 API |
 | QR-014 | P1 | 已完成 | 暂停恢复 | 画面、系统音频和麦克风统一时间轴已通过实机验证 |
 | QR-015 | P2 | 已完成 | QMA 导出 | 有界重试、较长轨时长和失败清理已通过实机验证 |
 | QR-016 | P2 | 已完成 | 应用状态 | adaptor 实例与 `AppDelegate.shared` 已统一并通过实机回归 |
@@ -204,7 +204,7 @@
 - 状态：`待处理`
 - 当前基线：
   - 工程只有一个应用 Target，没有应用单元测试或 UI 测试 Target。
-  - 最低版本提升到 macOS 14.2 后，最近一次普通 `arm64 Release` 构建成功，并暴露 44 条项目代码警告（主要是旧 SwiftUI/AVFoundation API 弃用与既有并发提示），另有 1 条无 AppIntents 依赖的元数据提示。
+  - 最低版本提升到 macOS 14.2 后，普通 `arm64 Debug/Release` 的 QuickRecorder 项目代码警告已清零；Xcode 26.5 仍输出 1 条“未链接 AppIntents”的工具级元数据提示，项目本身不使用 AppIntents。
   - 启用完整并发检查后共有 454 条警告，其中 175 处会在 Swift 6 模式下成为错误。
 - 修复方向：先为录制状态机、输出路径和设备选择抽出可测试逻辑；逐步隔离全局可变状态和 AppKit 主线程状态。
 - 验收标准：
@@ -248,10 +248,10 @@
 ### QR-013：精确系统主版本判断不利于未来兼容
 
 - 优先级：`P3`
-- 状态：`待处理`
-- 证据：`QuickRecorder/QuickRecorderApp.swift:18`
+- 状态：`已完成`
 - 问题：代码使用 `majorVersion == 14`、`== 15` 等精确判断。macOS 15、26 及后续版本不会进入本应对“14 及以上”生效的分支，已经存在 Presenter Overlay 提示和状态栏偏移遗漏。
-- 修复方向：功能能力使用 `#available` 或能力检测；只在确实需要单个系统版本规避 Bug 时使用精确版本判断。
+- 当前修复：删除精确主版本全局变量与 macOS 12/13、14.0 以下不可达分支；macOS 14.2 已提供的功能直接走现代路径，仅保留 macOS 15+ 的真实增量能力判断。同步迁移 SwiftUI `onChange`/Settings 导航、Locale、AVCaptureDevice、AVAsset 异步读取和 `SCScreenshotManager`，并收敛 Screen/Window selector 的主线程状态更新。
+- 当前验证：干净 `arm64 Release`、Debug Analyze、`git diff --check` 和源码抑制搜索通过；QuickRecorder 项目代码 warning 为 0。固定路径 Debug App 已使用原 Bundle ID、Team 和 Apple Development 签名重新启动。Xcode 26.5 的 AppIntents 元数据工具仍有 1 条与项目代码无关的提示。
 - 验收标准：支持范围内各系统使用正确功能路径，新增 macOS 主版本不会默认退回旧行为。
 
 ### QR-014：Pause/Resume 后音频时间轴没有同步压缩
@@ -403,6 +403,7 @@
 
 | 日期 | 变更 | 关联项 |
 | --- | --- | --- |
+| 2026-07-22 | 删除精确系统版本与不可达兼容分支，迁移 SwiftUI、AVFoundation 和截图 API；普通 Debug/Release 项目警告由 44 条降至 0 | QR-013、QR-010 |
 | 2026-07-22 | Project、App Target、中英文 README 与构建产物统一为 Apple Silicon / macOS 14.2+；Debug、Release、Analyze、签名和固定调试版启动验证通过 | QR-006 |
 | 2026-07-22 | 用户确认指定 XIBERIA 录音和录制中断连默认输入降级均正常，QR-009 标记完成 | QR-009 |
 | 2026-07-22 | 麦克风选择、持久化与采集查找改用 `AVCaptureDevice.uniqueID`；加入旧名称迁移和同名显示区分，本机 XIBERIA 设置迁移及全套构建检查通过，等待真实录制与断连回归 | QR-009 |

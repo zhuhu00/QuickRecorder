@@ -14,9 +14,6 @@ import UserNotifications
 import KeyboardShortcuts
 import ServiceManagement
 
-let isMacOS12 = ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 12
-let isMacOS14 = ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 14
-let isMacOS15 = ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 15
 var scPerm = false
 let fd = FileManager.default
 let ud = UserDefaults.standard
@@ -79,12 +76,7 @@ struct QuickRecorderApp: App {
 
 extension Scene {
     func myWindowIsContentResizable() -> some Scene {
-        if #available(macOS 13.0, *) {
-            return self.windowResizability(.contentSize)
-        }
-        else {
-            return self
-        }
+        windowResizability(.contentSize)
     }
 }
 
@@ -111,6 +103,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
     var presenterType = "OFF"
     var frameQueue = FixedLengthArray<CMTime>(maxLength: 20)
     private var isWaitingForTermination = false
+    private var isCapturingMagnifierFrame = false
     
     @AppStorage("showOnDock")       var showOnDock: Bool = true
     @AppStorage("showMenubar")      var showMenubar: Bool = true
@@ -164,12 +157,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
         let mouseLocation = event.locationInWindow
         var windowFrame = screenMagnifier.frame
         windowFrame.origin = NSPoint(x: mouseLocation.x - windowFrame.width / 2, y: mouseLocation.y - windowFrame.height / 2)
-        guard let image = NSImage.createScreenShot() else { return }
-        let rect = NSRect(x: mouseLocation.x - 67, y: mouseLocation.y - 58, width: 134, height: 116)
-        let croppedImage = image.trim(rect: rect)
-        screenMagnifier.contentView = NSHostingView(rootView: ScreenMagnifier(screenShot: croppedImage, event: event))
-        screenMagnifier.setFrameOrigin(windowFrame.origin)
-        screenMagnifier.orderFront(nil)
+        guard !isCapturingMagnifierFrame else { return }
+        isCapturingMagnifierFrame = true
+        NSImage.createMagnifierScreenshot(around: mouseLocation) { [weak self] image in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.isCapturingMagnifierFrame = false
+                guard SCContext.isMagnifierEnabled, !hideScreenMagnifier, let image else { return }
+                screenMagnifier.contentView = NSHostingView(rootView: ScreenMagnifier(screenShot: image))
+                screenMagnifier.setFrameOrigin(windowFrame.origin)
+                screenMagnifier.orderFront(nil)
+            }
+        }
     }
     
     func registerGlobalMouseMonitor() {
@@ -237,15 +236,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
                 "saveDirectory": userDesktop as NSString,
                 "showMouse": true,
                 "recordMic": false,
-                "remuxAudio": isMacOS12 ? false : true,
-                "recordWinSound": isMacOS12 ? false : true,
+                "remuxAudio": true,
+                "recordWinSound": true,
                 "trimAfterRecord": false,
                 "showOnDock": true,
                 "showMenubar": true,
                 "enableAEC": false,
                 "recordHDR": false,
                 "preventSleep": true,
-                "showPreview": isMacOS12 ? false : true,
+                "showPreview": true,
                 "savedArea": [String: [String: CGFloat]]()
             ]
         )
@@ -253,8 +252,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
         
         if highRes == 0 { highRes = 2 }
         if showOnDock { NSApp.setActivationPolicy(.regular) }
-        if isMacOS12 { showPreview = false; remuxAudio = false }
-        
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
             if let error = error { print("Notification authorization denied: \(error.localizedDescription)") }
         }
@@ -354,7 +351,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
             let w2 = w1.filter({ !$0.title.contains(".qma") })
             if (!w1.isEmpty && w2.isEmpty) || w1.isEmpty {
                 let offset = (!showOnDock && !showMenubar) ? 127 : 0
-                let width = isMacOS12 ? 546 : 674
+                let width = 674
                 let mainPanel = EscPanel(contentRect: NSRect(x: 0, y: 0, width: width + offset, height: 100), styleMask: [.fullSizeContentView, .nonactivatingPanel], backing: .buffered, defer: false)
                 mainPanel.contentView = NSHostingView(rootView: ContentView())
                 mainPanel.title = "QuickRecorder".local
@@ -372,7 +369,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
                     mainPanel.setFrameOrigin(NSPoint(x: wX, y: wY))
                 }
                 mainPanel.makeKeyAndOrderFront(self)
-                if #unavailable(macOS 13) { NSApp.activate(ignoringOtherApps: true) }
                 PopoverState.shared.isShowing = false
             }
         }
@@ -381,11 +377,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
     
     func openSettingPanel() {
         NSApp.activate(ignoringOtherApps: true)
-        if #available(macOS 13, *) {
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        } else {
-            NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
-        }
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
     }
     
     class EscPanel: NSPanel {
@@ -540,34 +532,40 @@ extension NSMenuItem {
 }
 
 extension NSImage {
-    static func createScreenShot() -> NSImage? {
-        let excludedAppBundleIDs = [Bundle.main.bundleIdentifier].compactMap { $0 }
-        var exclusionPIDs = [Int]()
-        for app in NSWorkspace.shared.runningApplications {
-            if excludedAppBundleIDs.contains(app.bundleIdentifier ?? "") {
-                exclusionPIDs.append(Int(app.processIdentifier))
-            }
+    static func createMagnifierScreenshot(around mouseLocation: NSPoint, completion: @escaping (NSImage?) -> Void) {
+        guard let display = SCContext.getSCDisplayWithMouse(),
+              let screen = SCContext.getScreenWithMouse() else {
+            completion(nil)
+            return
         }
-        
-        let windowDescriptions = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? []
-        var windowIDs = [CGWindowID]()
-        for windowDict in windowDescriptions {
-            if let windowProcessID = windowDict[kCGWindowOwnerPID as String] as? Int,
-               !exclusionPIDs.contains(windowProcessID),
-               let windowID = windowDict[kCGWindowNumber as String] as? CGWindowID {
-                windowIDs.append(windowID)
-            }
-        }
-        let pointer = UnsafeMutablePointer<UnsafeRawPointer?>.allocate(capacity: windowIDs.count)
-        for (index, window) in windowIDs.enumerated() { pointer[index] = UnsafeRawPointer(bitPattern: UInt(window)) }
-        let cWindowIDArray: CFArray = CFArrayCreate(kCFAllocatorDefault, pointer, windowIDs.count, nil)
 
-        guard let imageRef = CGImage(windowListFromArrayScreenBounds: CGRect.infinite, windowArray: cWindowIDArray, imageOption: []) else {
-            print("No image available")
-            return nil
+        let sourceSize = NSSize(width: 134, height: 116)
+        let localX = mouseLocation.x - screen.frame.minX - sourceSize.width / 2
+        let localY = screen.frame.maxY - mouseLocation.y - sourceSize.height / 2
+        let maxX = max(0, screen.frame.width - sourceSize.width)
+        let maxY = max(0, screen.frame.height - sourceSize.height)
+        let sourceRect = NSRect(
+            x: min(max(0, localX), maxX),
+            y: min(max(0, localY), maxY),
+            width: min(sourceSize.width, screen.frame.width),
+            height: min(sourceSize.height, screen.frame.height)
+        )
+
+        let excludedApplications = SCContext.getSelf().map { [$0] } ?? []
+        let filter = SCContentFilter(display: display, excludingApplications: excludedApplications, exceptingWindows: [])
+        let configuration = SCStreamConfiguration()
+        let scale = screen.backingScaleFactor
+        configuration.sourceRect = sourceRect
+        configuration.width = Int(sourceRect.width * scale)
+        configuration.height = Int(sourceRect.height * scale)
+        configuration.showsCursor = false
+
+        SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration) { image, error in
+            if let error {
+                print("Screen magnifier capture failed: \(error.localizedDescription)")
+            }
+            completion(image.map { NSImage(cgImage: $0, size: sourceRect.size) })
         }
-        let factor = SCContext.getScreenWithMouse()?.backingScaleFactor ?? 1.0
-        return NSImage(cgImage: imageRef, size: NSSize(width: CGFloat(imageRef.width)/factor, height: CGFloat(imageRef.height)/factor))
     }
     
     func saveToFile(_ url: URL, type: NSBitmapImageRep.FileType = .png) {
@@ -582,16 +580,6 @@ extension NSImage {
         }
     }
     
-    func trim(rect: CGRect) -> NSImage {
-        let result = NSImage(size: rect.size)
-        result.lockFocus()
-
-        let destRect = CGRect(origin: .zero, size: result.size)
-        self.draw(in: destRect, from: rect, operation: .copy, fraction: 1.0)
-
-        result.unlockFocus()
-        return result
-    }
 }
 
 class NNSWindow: NSWindow {

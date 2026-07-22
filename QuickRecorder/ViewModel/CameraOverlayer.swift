@@ -98,8 +98,7 @@ struct SwiftCameraView: View {
                 }.frame(width: geometry.size.width, height: geometry.size.height)
                 if SCContext.streamType == .window {
                     Text("Unable to use camera overlayer when recording a single window!".local
-                         + (isMacOS14 ? " Please use \"Presenter Overlay\"".local : "")
-                    )
+                         + " Please use \"Presenter Overlay\"".local)
                     .padding()
                     .colorInvert()
                     .background(.secondary)

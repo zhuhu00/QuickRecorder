@@ -111,7 +111,6 @@ struct SInfoButton: View {
                 .opacity(0.5)
         })
         .buttonStyle(.plain)
-        .onChange(of: isPresented) {_ in}
         .sheet(isPresented: $isPresented) {
             VStack(alignment: .trailing) {
                 GroupBox { Text(tips).padding() }
@@ -255,7 +254,7 @@ struct SSteper: View {
                 .textFieldStyle(.roundedBorder)
                 .multilineTextAlignment(.trailing)
                 .frame(width: width)
-                .onChange(of: value) { newValue in
+                .onChange(of: value) { _, newValue in
                     if newValue > max { value = max }
                     if newValue < min { value = min }
                 }

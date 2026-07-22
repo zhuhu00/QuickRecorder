@@ -144,7 +144,7 @@ extension AppDelegate {
                     if highlightMouse { includ += mouseWindow }
                     if background.rawValue == BackgroundType.wallpaper.rawValue { if dockApp != nil { includ += wallpaper }}
                     SCContext.filter = SCContentFilter(display: screen, including: includ + camLayer)
-                    if #available(macOS 14.2, *) { SCContext.filter?.includeMenuBar = includeMenuBar }
+                    SCContext.filter?.includeMenuBar = includeMenuBar
                 } else {
                     SCContext.streamType = .window
                     SCContext.filter = SCContentFilter(desktopIndependentWindow: includ[0])
@@ -169,7 +169,7 @@ extension AppDelegate {
                 }}
                 if hideDesktopFiles { except += desktopFiles }
                 SCContext.filter = SCContentFilter(display: screen, excludingApplications: excluded, exceptingWindows: except)
-                if #available(macOS 14.2, *) { SCContext.filter?.includeMenuBar = ((SCContext.streamType == .screen || SCContext.streamType == .screenarea) && includeMenuBar) }
+                SCContext.filter?.includeMenuBar = ((SCContext.streamType == .screen || SCContext.streamType == .screenarea) && includeMenuBar)
             }
         }
         if SCContext.streamType == .systemaudio {
@@ -231,36 +231,8 @@ extension AppDelegate {
         conf.height = 2
         
         if !audioOnly {
-            if #available(macOS 14.0, *) {
-                conf.width = Int(filter.contentRect.width) * (highRes == 2 ? Int(filter.pointPixelScale) : 1)
-                conf.height = Int(filter.contentRect.height) * (highRes == 2 ? Int(filter.pointPixelScale) : 1)
-            } else {
-                guard let display = SCContext.screen ?? SCContext.getSCDisplayWithMouse(),
-                      let pointPixelScaleOld = display.nsScreen?.backingScaleFactor else {
-                    throw RecordingStartError.missingDisplay
-                }
-                if SCContext.streamType == .windows || SCContext.streamType == .screen {
-                    let frame = display.frame
-                    conf.width = Int(frame.width)
-                    conf.height = Int(frame.height)
-                }
-                if SCContext.streamType == .window {
-                    guard let frame = SCContext.window?.first?.frame else {
-                        throw RecordingStartError.missingSelection("window")
-                    }
-                    conf.width = Int(frame.width)
-                    conf.height = Int(frame.height)
-                }
-                if SCContext.streamType == .screenarea {
-                    guard let frame = SCContext.screenArea else {
-                        throw RecordingStartError.missingSelection("screen area")
-                    }
-                    conf.width = Int(frame.width)
-                    conf.height = Int(frame.height)
-                }
-                conf.width = conf.width * (highRes == 2 ? Int(pointPixelScaleOld) : 1)
-                conf.height = conf.height * (highRes == 2 ? Int(pointPixelScaleOld) : 1)
-            }
+            conf.width = Int(filter.contentRect.width) * (highRes == 2 ? Int(filter.pointPixelScale) : 1)
+            conf.height = Int(filter.contentRect.height) * (highRes == 2 ? Int(filter.pointPixelScale) : 1)
             
             if fastStart{
                 conf.showsCursor = false
@@ -288,11 +260,9 @@ extension AppDelegate {
             }
         }
         
-        if #available(macOS 13, *) {
-            conf.capturesAudio = recordWinSound || fastStart || audioOnly
-            conf.sampleRate = 48000
-            conf.channelCount = 2
-        }
+        conf.capturesAudio = recordWinSound || fastStart || audioOnly
+        conf.sampleRate = 48000
+        conf.channelCount = 2
         
 
         let frameIntervalScale = audioOnly ? CMTimeScale.max : CMTimeScale(max(frameRate, 1))
@@ -321,16 +291,8 @@ extension AppDelegate {
                 }
                 let newY = display.frame.height - nsRect.size.height - nsRect.origin.y
                 conf.sourceRect = CGRect(x: nsRect.origin.x, y: newY, width: nsRect.size.width, height: nsRect.size.height)
-                if #available(macOS 14.0, *) {
-                    conf.width = Int(conf.sourceRect.width) * (highRes == 2 ? Int(filter.pointPixelScale) : 1)
-                    conf.height = Int(conf.sourceRect.height) * (highRes == 2 ? Int(filter.pointPixelScale) : 1)
-                } else {
-                    guard let pointPixelScaleOld = display.nsScreen?.backingScaleFactor else {
-                        throw RecordingStartError.missingDisplay
-                    }
-                    conf.width = Int(conf.sourceRect.width) * (highRes == 2 ? Int(pointPixelScaleOld) : 1)
-                    conf.height = Int(conf.sourceRect.height) * (highRes == 2 ? Int(pointPixelScaleOld) : 1)
-                }
+                conf.width = Int(conf.sourceRect.width) * (highRes == 2 ? Int(filter.pointPixelScale) : 1)
+                conf.height = Int(conf.sourceRect.height) * (highRes == 2 ? Int(filter.pointPixelScale) : 1)
             }
         }
         
@@ -366,9 +328,7 @@ extension AppDelegate {
         activeStream = stream
         SCContext.stream = stream
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: SCContext.streamOutputQueue)
-        if #available(macOS 13, *) {
-            try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: SCContext.streamOutputQueue)
-        }
+        try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: SCContext.streamOutputQueue)
         if audioOnly {
             createdOutputURL = try prepareAudioRecording(recordsMicrophone: shouldRecordMicrophone)
         } else {
@@ -562,15 +522,13 @@ extension AppDelegate {
             writer.add(videoInput)
             SCContext.vwInput = videoInput
 
-            if #available(macOS 13, *) {
-                let systemAudioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: SCContext.updateAudioSettings())
-                systemAudioInput.expectsMediaDataInRealTime = true
-                guard writer.canAdd(systemAudioInput) else {
-                    throw RecordingStartError.cannotAddWriterInput("system audio")
-                }
-                writer.add(systemAudioInput)
-                SCContext.awInput = systemAudioInput
+            let systemAudioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: SCContext.updateAudioSettings())
+            systemAudioInput.expectsMediaDataInRealTime = true
+            guard writer.canAdd(systemAudioInput) else {
+                throw RecordingStartError.cannotAddWriterInput("system audio")
             }
+            writer.add(systemAudioInput)
+            SCContext.awInput = systemAudioInput
 
             if recordsMicrophone {
                 let sampleRate = SCContext.getSampleRate() ?? 48000
@@ -789,20 +747,10 @@ extension AppDelegate {
                     //                                       colorSpace:colorSpace,
                     //                                       options: [
                     //     kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 1.0
-                    if #available(macOS 14.0, *) {
-                        try context.writePNGRepresentation(of:ciImage,
-                                                           to:url,
-                                                           format: .RGB10,
-                                                           colorSpace:colorSpace
-                        )
-                    } else {
-                        // Fallback on earlier versions
-                        print("RGB10 PNG not supported on this macOS version")
-                        try context.writePNGRepresentation(of:ciImage,
-                                                           to:url,
-                                                           format: .RGBA8,
-                                                           colorSpace:colorSpace)
-                    }
+                    try context.writePNGRepresentation(of:ciImage,
+                                                       to:url,
+                                                       format: .RGB10,
+                                                       colorSpace:colorSpace)
                     //        try context.writePNGRepresentation(of:outImage, to:outURL, format: .RGBA16,colorSpace:colorSpace,options:[:])
                 } catch let error {
                     // Handle the error case
@@ -832,21 +780,19 @@ extension AppDelegate {
             if frameQueue.getArray().contains(where: { $0 >= pts }) { print("Skip this frame"); return } else { frameQueue.append(pts) }
             SCContext.lastPTS = pts
             if SCContext.vwInput.isReadyForMoreMediaData {
-                if #available(macOS 14.2, *) {
-                    if let rect = attachments[.presenterOverlayContentRect] as? [String: Any]{
-                        var type = "np"
-                        let off = (rect["X"] as! CGFloat == .infinity)
-                        let small = (rect["X"] as! CGFloat == 0.0)
-                        let big = (!off && !small)
-                        if off { type = "OFF" } else if small { type = "Small" } else if big { type = "Big" }
-                        if type != presenterType {
-                            print("Presenter Overlay set to \"\(type)\"!")
-                            isCameraReady = false
-                            DispatchQueue.main.asyncAfter(deadline: .now() + TimeInterval(poSafeDelay)) {
-                                self.isCameraReady = true
-                            }
-                            presenterType = type
+                if let rect = attachments[.presenterOverlayContentRect] as? [String: Any] {
+                    var type = "np"
+                    let off = (rect["X"] as! CGFloat == .infinity)
+                    let small = (rect["X"] as! CGFloat == 0.0)
+                    let big = (!off && !small)
+                    if off { type = "OFF" } else if small { type = "Small" } else if big { type = "Big" }
+                    if type != presenterType {
+                        print("Presenter Overlay set to \"\(type)\"!")
+                        isCameraReady = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + TimeInterval(poSafeDelay)) {
+                            self.isCameraReady = true
                         }
+                        presenterType = type
                     }
                 }
                 if isPresenterON && !isCameraReady { break }

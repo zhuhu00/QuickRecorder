@@ -18,20 +18,8 @@ private final class StatusBarActionTarget: NSObject {
             return
         }
 
-        let content: AnyView
-        if #available(macOS 13, *) {
-            content = AnyView(ContentViewNew())
-        } else {
-            content = AnyView(
-                ContentView(fromStatusBar: true)
-                    .onAppear {
-                        if isMacOS12 { NSApp.activate(ignoringOtherApps: true) }
-                    }
-            )
-        }
-
         statusBarPopover.behavior = .transient
-        statusBarPopover.contentViewController = NSHostingController(rootView: content)
+        statusBarPopover.contentViewController = NSHostingController(rootView: AnyView(ContentViewNew()))
         statusBarPopover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
         DispatchQueue.main.async { restoreCameraOverlayerIfNeeded() }
     }
@@ -198,15 +186,7 @@ struct StatusBarItem: View {
                 })
                 .buttonStyle(.plain)
                 .popover(isPresented: $popoverState.isShowing, arrowEdge: .bottom) {
-                    if #available(macOS 13, *) {
-                        ContentViewNew().onAppear { restoreCameraOverlayerIfNeeded() }
-                    } else {
-                        ContentView(fromStatusBar: true)
-                            .onAppear {
-                                restoreCameraOverlayerIfNeeded()
-                                if isMacOS12 { NSApp.activate(ignoringOtherApps: true) }
-                            }
-                    }
+                    ContentViewNew().onAppear { restoreCameraOverlayerIfNeeded() }
                 }
             }
         }
@@ -252,7 +232,7 @@ func updateStatusBar() {
         button.target = nil
         button.action = nil
         statusBarItem.length = getStatusBarWidth()
-        let iconView = NSHostingView(rootView: StatusBarItem().padding(.top, isMacOS14 ? -2 : -1))
+        let iconView = NSHostingView(rootView: StatusBarItem().padding(.top, -2))
         iconView.translatesAutoresizingMaskIntoConstraints = false
         button.addSubview(iconView)
         NSLayoutConstraint.activate([

@@ -14,6 +14,46 @@ import SwiftLAME
 import SwiftUI
 import AECAudioStream
 
+@MainActor
+private final class LegacyAssetExportJob {
+    private let session: AVAssetExportSession
+
+    init(session: AVAssetExportSession) {
+        self.session = session
+    }
+
+    func run() async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            session.exportAsynchronously { [self] in
+                Task { @MainActor in
+                    switch session.status {
+                    case .completed:
+                        continuation.resume()
+                    case .failed:
+                        continuation.resume(throwing: session.error ?? NSError(
+                            domain: "ExportError",
+                            code: -1,
+                            userInfo: [NSLocalizedDescriptionKey: "Export failed for an unknown reason."]
+                        ))
+                    case .cancelled:
+                        continuation.resume(throwing: NSError(
+                            domain: "ExportCancelled",
+                            code: -1,
+                            userInfo: [NSLocalizedDescriptionKey: "Export was cancelled."]
+                        ))
+                    default:
+                        continuation.resume(throwing: NSError(
+                            domain: "ExportError",
+                            code: -1,
+                            userInfo: [NSLocalizedDescriptionKey: "Export finished in an unexpected state."]
+                        ))
+                    }
+                }
+            }
+        }
+    }
+}
+
 class SCContext {
     static var trimingList = [URL]()
     static var firstFrame: CMSampleBuffer?
@@ -678,7 +718,7 @@ class SCContext {
 
     private static func finalizeVideoRecording(_ context: RecordingStopContext) {
         context.videoInput?.markAsFinished()
-        if #available(macOS 13, *) { context.systemAudioInput?.markAsFinished() }
+        context.systemAudioInput?.markAsFinished()
 
         guard let writer = context.writer,
               let outputPath = context.outputPath else {
@@ -800,17 +840,12 @@ class SCContext {
     }
     
     static func getCameras() -> [AVCaptureDevice] {
-        let discoverySession = AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInWideAngleCamera, .externalUnknown], mediaType: .video, position: .unspecified)
+        let discoverySession = AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInWideAngleCamera, .external], mediaType: .video, position: .unspecified)
         return discoverySession.devices
     }
     
     static func getMicrophone() -> [AVCaptureDevice] {
-        var discoverySession: AVCaptureDevice.DiscoverySession
-        if #available(macOS 15.0, *) {
-            discoverySession = AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInMicrophone, .microphone], mediaType: .audio, position: .unspecified)
-        } else {
-            discoverySession = AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInMicrophone, .externalUnknown], mediaType: .audio, position: .unspecified)
-        }
+        let discoverySession = AVCaptureDevice.DiscoverySession(deviceTypes: [.microphone, .external], mediaType: .audio, position: .unspecified)
         return discoverySession.devices.filter({ !$0.localizedName.contains("CADefaultDeviceAggregate") })
     }
 
@@ -1065,119 +1100,85 @@ class SCContext {
         let audioOnlyComposition = AVMutableComposition()
         
         let fileEnding = videoFormat ?? ud.string(forKey: "videoFormat") ?? ""
-        var fileType: AVFileType?
+        let fileType: AVFileType
         switch fileEnding {
-        case VideoFormat.mov.rawValue: fileType = AVFileType.mov
-        case VideoFormat.mp4.rawValue: fileType = AVFileType.mp4
-        default: assertionFailure("loaded unknown video format".local)
+        case VideoFormat.mov.rawValue: fileType = .mov
+        case VideoFormat.mp4.rawValue: fileType = .mp4
+        default:
+            assertionFailure("loaded unknown video format".local)
+            fileType = .mp4
         }
         
-        let audioTracks = asset.tracks(withMediaType: .audio)
-        guard audioTracks.count > 1 else {
-            completion(.failure(NSError(domain: "AudioTrackError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Not enough audio tracks found."])))
-            return
-        }
-        
-        for audioTrack in audioTracks {
-            if let compositionAudioTrack = audioOnlyComposition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
-                do {
-                    try compositionAudioTrack.insertTimeRange(CMTimeRange(start: .zero, duration: asset.duration), of: audioTrack, at: .zero)
-                } catch {
-                    completion(.failure(NSError(domain: "AudioTrackInsertionError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to insert audio track: \(error.localizedDescription)"])))
+        Task { @MainActor in
+            do {
+                let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+                let assetDuration = try await asset.load(.duration)
+                guard audioTracks.count > 1 else {
+                    completion(.failure(NSError(domain: "AudioTrackError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Not enough audio tracks found."])))
                     return
                 }
-            }
-        }
-        
-        let audioMix = AVMutableAudioMix()
-        audioMix.inputParameters = audioTracks.map {
-            let parameters = AVMutableAudioMixInputParameters(track: $0)
-            parameters.trackID = $0.trackID
-            return parameters
-        }
-        
-        guard let audioExportSession = AVAssetExportSession(asset: audioOnlyComposition, presetName: AVAssetExportPresetHighestQuality) else {
-            completion(.failure(NSError(domain: "AudioExportSessionError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create audio export session."])))
-            return
-        }
-        audioExportSession.outputURL = audioOutputURL
-        audioExportSession.outputFileType = fileType ?? .mp4
-        audioExportSession.audioMix = audioMix
-        
-        audioExportSession.exportAsynchronously {
-            /*var exportStatus: AVAssetExportSession.Status = .unknown
-            
-            // Loop until export session is completed, failed, or cancelled
-            while exportStatus != .completed && exportStatus != .failed && exportStatus != .cancelled {
-                exportStatus = audioExportSession.status
-                Thread.sleep(forTimeInterval: 0.1)
-            }*/
-            
-            switch audioExportSession.status {
-            case .completed:
+
+                for audioTrack in audioTracks {
+                    if let compositionAudioTrack = audioOnlyComposition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
+                        try compositionAudioTrack.insertTimeRange(CMTimeRange(start: .zero, duration: assetDuration), of: audioTrack, at: .zero)
+                    }
+                }
+
+                let audioMix = AVMutableAudioMix()
+                audioMix.inputParameters = audioTracks.map {
+                    let parameters = AVMutableAudioMixInputParameters(track: $0)
+                    parameters.trackID = $0.trackID
+                    return parameters
+                }
+
+                guard let audioExportSession = AVAssetExportSession(asset: audioOnlyComposition, presetName: AVAssetExportPresetHighestQuality) else {
+                    completion(.failure(NSError(domain: "AudioExportSessionError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create audio export session."])))
+                    return
+                }
+                audioExportSession.outputURL = audioOutputURL
+                audioExportSession.outputFileType = fileType
+                audioExportSession.audioMix = audioMix
+                try await LegacyAssetExportJob(session: audioExportSession).run()
+
                 let audioAsset = AVAsset(url: audioOutputURL)
                 let composition = AVMutableComposition()
-                
-                guard let videoTrack = asset.tracks(withMediaType: .video).first,
+                let videoTracks = try await asset.loadTracks(withMediaType: .video)
+
+                guard let videoTrack = videoTracks.first,
                       let compositionVideoTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
                     completion(.failure(NSError(domain: "VideoTrackError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to get video track."])))
                     return
                 }
-                
-                do {
-                    try compositionVideoTrack.insertTimeRange(CMTimeRange(start: .zero, duration: asset.duration), of: videoTrack, at: .zero)
-                } catch {
-                    completion(.failure(NSError(domain: "VideoTrackInsertionError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to insert video track: \(error.localizedDescription)"])))
-                    return
-                }
-                
-                let audioTracks = audioAsset.tracks(withMediaType: .audio)
-                guard audioTracks.count >= 1 else {
+
+                try compositionVideoTrack.insertTimeRange(CMTimeRange(start: .zero, duration: assetDuration), of: videoTrack, at: .zero)
+
+                let mixedAudioTracks = try await audioAsset.loadTracks(withMediaType: .audio)
+                guard !mixedAudioTracks.isEmpty else {
                     completion(.failure(NSError(domain: "AudioTrackError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Not enough audio tracks found."])))
                     return
                 }
-                
-                for audioTrack in audioTracks {
+
+                for audioTrack in mixedAudioTracks {
                     if let compositionAudioTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
-                        do {
-                            try compositionAudioTrack.insertTimeRange(CMTimeRange(start: .zero, duration: asset.duration), of: audioTrack, at: .zero)
-                        } catch {
-                            completion(.failure(NSError(domain: "AudioTrackInsertionError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to insert audio track: \(error.localizedDescription)"])))
-                            return
-                        }
+                        try compositionAudioTrack.insertTimeRange(CMTimeRange(start: .zero, duration: assetDuration), of: audioTrack, at: .zero)
                     }
                 }
-                
+
                 guard let exportSession = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetPassthrough) else {
                     completion(.failure(NSError(domain: "ExportSessionError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create export session."])))
                     return
                 }
-                
+
                 exportSession.outputURL = outputURL
-                exportSession.outputFileType = fileType ?? .mp4
+                exportSession.outputFileType = fileType
                 exportSession.audioMix = audioMix
-                
-                exportSession.exportAsynchronously {
-                    switch exportSession.status {
-                    case .completed:
-                        let  fileManager = fd
-                        try? fileManager.removeItem(at: videoURL)
-                        try? fileManager.removeItem(atPath: audioOutputURL.path)
-                        completion(.success(outputURL))
-                    case .failed:
-                        completion(.failure(exportSession.error ?? NSError(domain: "ExportError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Export failed for an unknown reason."])))
-                    case .cancelled:
-                        completion(.failure(NSError(domain: "ExportCancelled", code: -1, userInfo: [NSLocalizedDescriptionKey: "Export was cancelled."])))
-                    default:
-                        break
-                    }
-                }
-            case .failed:
-                completion(.failure(audioExportSession.error ?? NSError(domain: "ExportError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Export failed for an unknown reason."])))
-            case .cancelled:
-                completion(.failure(NSError(domain: "ExportCancelled", code: -1, userInfo: [NSLocalizedDescriptionKey: "Export was cancelled."])))
-            default:
-                break
+                try await LegacyAssetExportJob(session: exportSession).run()
+
+                try? fd.removeItem(at: videoURL)
+                try? fd.removeItem(at: audioOutputURL)
+                completion(.success(outputURL))
+            } catch {
+                completion(.failure(error))
             }
         }
     }

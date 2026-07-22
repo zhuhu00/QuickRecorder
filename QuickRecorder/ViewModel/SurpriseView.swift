@@ -24,7 +24,7 @@ func isChineseNewYear() -> Bool {
 
 func isAllowChineseNewYear() -> Bool {
     let allwoedRegions: Set<String> = ["CN", "HK", "MO", "TW", "SG", "MY", "ID", "KR", "VN", "PH"]
-    let currentRegionCode = Locale.current.regionCode ?? ""
+    let currentRegionCode = Locale.current.region?.identifier ?? ""
     return allwoedRegions.contains(currentRegionCode)
 }
 
@@ -43,7 +43,7 @@ func isAllowChristmas() -> Bool {
         "ML", "BD", "NE", "SL", "SN", "TR", "IR", "ID", "MV",
         "TD", "TM", "UZ", "SR", "GY", "TJ", "TG"
     ]
-    let currentRegionCode = Locale.current.regionCode ?? ""
+    let currentRegionCode = Locale.current.region?.identifier ?? ""
     return !disallowedRegions.contains(currentRegionCode)
 }
 

@@ -137,7 +137,7 @@ struct WinSelector: View {
                 }
                 .frame(height: 445)
                 .padding(.horizontal, 10)
-                .onChange(of: selectedTab) { _ in selected.removeAll() }
+                .onChange(of: selectedTab) { selected.removeAll() }
                 .onReceive(viewModel.$isReady) { isReady in
                     if isReady {
                         let allApps = viewModel.windowThumbnails.sorted(by: { $0.key.displayID < $1.key.displayID })
@@ -175,13 +175,13 @@ struct WinSelector: View {
                         VStack(alignment: .leading) {
                             Toggle(isOn: $disableFilter) { Text("Show Windows with No Title") }
                                 .toggleStyle(.checkbox)
-                                .onChange(of: disableFilter) { _ in
+                                .onChange(of: disableFilter) {
                                     self.viewModel.setupStreams(filter: !disableFilter, capture: !donotCapture)
                                     self.selected.removeAll()
                                 }
                             Toggle(isOn: $donotCapture) { Text("Don't Create Thumbnails") }
                                 .toggleStyle(.checkbox)
-                                .onChange(of: donotCapture) { _ in
+                                .onChange(of: donotCapture) {
                                     self.viewModel.setupStreams(filter: !disableFilter, capture: !donotCapture)
                                     self.selected.removeAll()
                                 }
@@ -278,25 +278,23 @@ class WindowSelectorViewModel: NSObject, ObservableObject, SCStreamDelegate, SCS
                 return
             }
             for d in displays {
-                DispatchQueue.main.async {
-                    if self.windowThumbnails[d] != nil {
-                        if !self.windowThumbnails[d]!.contains(where: { $0.window == currentWindow }) { self.windowThumbnails[d]!.append(thumbnail) }
-                    } else {
-                        self.windowThumbnails[d] = [thumbnail]
-                    }
+                if windowThumbnails[d] != nil {
+                    if !windowThumbnails[d]!.contains(where: { $0.window == currentWindow }) { windowThumbnails[d]!.append(thumbnail) }
+                } else {
+                    windowThumbnails[d] = [thumbnail]
                 }
             }
-            DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) { self.streams[index].stopCapture() }
-            if index + 1 == self.streams.count { DispatchQueue.main.async { self.isReady = true }}
+            streams[index].stopCapture()
+            if index + 1 == streams.count { isReady = true }
         }
     }
 
     func setupStreams(filter: Bool = true, capture: Bool = true) {
         SCContext.updateAvailableContent {
-            Task {
+            Task { @MainActor in
                 do {
                     self.streams.removeAll()
-                    DispatchQueue.main.async { self.windowThumbnails.removeAll() }
+                    self.windowThumbnails.removeAll()
                     self.allWindows = SCContext.getWindows().filter({
                         !($0.title == "" && $0.owningApplication?.bundleIdentifier == "com.apple.finder")
                         && $0.owningApplication?.bundleIdentifier != Bundle.main.bundleIdentifier
@@ -315,7 +313,7 @@ class WindowSelectorViewModel: NSObject, ObservableObject, SCStreamDelegate, SCS
                             streamConfiguration.height = Int(height * factor)
                             streamConfiguration.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(1))
                             streamConfiguration.pixelFormat = kCVPixelFormatType_32BGRA
-                            if #available(macOS 13, *) { streamConfiguration.capturesAudio = false }
+                            streamConfiguration.capturesAudio = false
                             streamConfiguration.showsCursor = false
                             streamConfiguration.scalesToFit = true
                             streamConfiguration.queueDepth = 3
@@ -329,18 +327,16 @@ class WindowSelectorViewModel: NSObject, ObservableObject, SCStreamDelegate, SCS
                             let thumbnail = WindowThumbnail(image: NSImage.unknowScreen, window: w)
                             guard let displays = SCContext.availableContent?.displays.filter({ NSIntersectsRect(w.frame, $0.frame) }) else { break }
                             for d in displays {
-                                DispatchQueue.main.async {
-                                    if self.windowThumbnails[d] != nil {
-                                        if !self.windowThumbnails[d]!.contains(where: { $0.window == w }) {
-                                            self.windowThumbnails[d]!.append(thumbnail)
-                                        }
-                                    } else {
-                                        self.windowThumbnails[d] = [thumbnail]
+                                if self.windowThumbnails[d] != nil {
+                                    if !self.windowThumbnails[d]!.contains(where: { $0.window == w }) {
+                                        self.windowThumbnails[d]!.append(thumbnail)
                                     }
+                                } else {
+                                    self.windowThumbnails[d] = [thumbnail]
                                 }
                             }
                         }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { self.isReady = true }
+                        self.isReady = true
                     }
                 } catch {
                     print("Get windowshot error：\(error)")

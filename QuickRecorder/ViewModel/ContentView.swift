@@ -46,8 +46,7 @@ struct ContentView: View {
                 }.cornerRadius(14)
                 HStack {
                     if !fromStatusBar { Spacer() }
-                    if #available(macOS 13, *) {
-                        ZStack(alignment: Alignment(horizontal: .center, vertical: .bottom)) {
+                    ZStack(alignment: Alignment(horizontal: .center, vertical: .bottom)) {
                             Button(action: {
                                 if let display = SCContext.getSCDisplayWithMouse() {
                                     closeMainWindow()
@@ -74,7 +73,7 @@ struct ContentView: View {
                                         }
                                     }
                                     .buttonStyle(.plain)
-                                    .onChange(of: recordMic) { _ in  Task { await SCContext.performMicCheck() }}
+                                    .onChange(of: recordMic) { Task { await SCContext.performMicCheck() } }
                                     .onAppear{ if micList.isEmpty { recordMic = false } }
                                     .disabled(micList.isEmpty)
                                     if micDevice != "default" && enableAEC && recordMic{
@@ -105,48 +104,31 @@ struct ContentView: View {
                                             .frame(width: 24)
                                             .padding(.leading, 1)
                                     }
-                                    if #available(macOS 14, *) {
-                                        Picker("", selection: $micDevice) {
-                                            Text("Default".local).tag("default")
-                                            ForEach(micList, id: \.uniqueID) { device in
-                                                Text(SCContext.microphoneDisplayName(for: device, devices: micList))
-                                                    .tag(device.uniqueID)
-                                            }
-                                        }.frame(width: 90)
-                                            .background(
-                                                ZStack {
-                                                    Color.primary
-                                                        .opacity(0.1)
-                                                        .cornerRadius(4)
-                                                        .padding(.vertical, -1)
-                                                        .padding(.horizontal, 3)
-                                                        .padding(.trailing, -16)
-                                                    Image(systemName: "chevron.up.chevron.down")
-                                                        .offset(x: 50)
-                                                }
-                                            )
-                                            .disabled(!recordMic)
-                                            .padding(.leading, -10)
-                                            .frame(width: 99)
-                                            .onAppear{
-                                                micDevice = SCContext.migrateMicrophoneSelectionIfNeeded(devices: micList)
-                                            }
-                                    } else {
-                                        Spacer().frame(width: 6)
-                                        Picker("", selection: $micDevice) {
-                                            Text("Default".local).tag("default")
-                                            ForEach(micList, id: \.uniqueID) { device in
-                                                Text(SCContext.microphoneDisplayName(for: device, devices: micList))
-                                                    .tag(device.uniqueID)
-                                            }
+                                    Picker("", selection: $micDevice) {
+                                        Text("Default".local).tag("default")
+                                        ForEach(micList, id: \.uniqueID) { device in
+                                            Text(SCContext.microphoneDisplayName(for: device, devices: micList))
+                                                .tag(device.uniqueID)
                                         }
+                                    }.frame(width: 90)
+                                        .background(
+                                            ZStack {
+                                                Color.primary
+                                                    .opacity(0.1)
+                                                    .cornerRadius(4)
+                                                    .padding(.vertical, -1)
+                                                    .padding(.horizontal, 3)
+                                                    .padding(.trailing, -16)
+                                                Image(systemName: "chevron.up.chevron.down")
+                                                    .offset(x: 50)
+                                            }
+                                        )
                                         .disabled(!recordMic)
-                                        .padding(.leading, -7.5)
-                                        .frame(width: 100)
+                                        .padding(.leading, -10)
+                                        .frame(width: 99)
                                         .onAppear{
                                             micDevice = SCContext.migrateMicrophoneSelectionIfNeeded(devices: micList)
                                         }
-                                    }
                                 }.padding(.leading, -5)
                             }.buttonStyle(.plain)
                             .scaleEffect(0.69)
@@ -155,7 +137,6 @@ struct ContentView: View {
                             .background(.primary.opacity(0.00001))
                         }
                         Divider().frame(height: 70)
-                    }
                     Button(action: {
                         closeMainWindow()
                         appDelegate.createNewWindow(view: ScreenSelector(), title: "Screen Selector".local)
@@ -385,11 +366,7 @@ extension AppDelegate {
 
 extension View {
     func needScale() -> some View {
-        if #available(macOS 14, *) {
-            return self.scaleEffect(0.8).padding(.leading, -4)
-        } else {
-            return self
-        }
+        scaleEffect(0.8).padding(.leading, -4)
     }
 }
 

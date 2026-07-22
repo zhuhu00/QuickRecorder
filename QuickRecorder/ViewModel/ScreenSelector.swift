@@ -180,19 +180,17 @@ class ScreenSelectorViewModel: NSObject, ObservableObject, SCStreamDelegate, SCS
             if nsImage == nil { nsImage = SCContext.getWallpaper(self.allScreens[index]) ?? NSImage.unknowScreen }
             let currentScreen = self.allScreens[index]
             let thumbnail = ScreenThumbnail(image: nsImage!, screen: currentScreen)
-            DispatchQueue.main.async {
-                if !self.screenThumbnails.contains(where: { $0.screen == currentScreen }) { self.screenThumbnails.append(thumbnail) }
-            }
+            if !screenThumbnails.contains(where: { $0.screen == currentScreen }) { screenThumbnails.append(thumbnail) }
             self.streams[index].stopCapture()
         }
     }
 
     func setupStreams() {
         SCContext.updateAvailableContent {
-            Task {
+            Task { @MainActor in
                 do {
                     self.streams.removeAll()
-                    DispatchQueue.main.async { self.screenThumbnails.removeAll() }
+                    self.screenThumbnails.removeAll()
                     guard let screens = SCContext.availableContent?.displays else { return }
                     self.allScreens = screens
                     let qrSelf = SCContext.getSelf()
@@ -203,7 +201,7 @@ class ScreenSelectorViewModel: NSObject, ObservableObject, SCStreamDelegate, SCS
                         streamConfiguration.height = Int(self.allScreens[index].frame.height)
                         streamConfiguration.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(1))
                         streamConfiguration.pixelFormat = kCVPixelFormatType_32BGRA
-                        if #available(macOS 13, *) { streamConfiguration.capturesAudio = false }
+                        streamConfiguration.capturesAudio = false
                         streamConfiguration.showsCursor = false
                         streamConfiguration.queueDepth = 3
                         let stream = SCStream(filter: contentFilter, configuration: streamConfiguration, delegate: self)

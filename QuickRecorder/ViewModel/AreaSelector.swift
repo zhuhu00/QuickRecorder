@@ -43,7 +43,7 @@ struct resizeView: View {
                     .frame(width: 60)
                     .textFieldStyle(.roundedBorder)
                     .focused($focusedField, equals: .width)
-                    .onChange(of: areaWidth) { newValue in
+                    .onChange(of: areaWidth) { _, newValue in
                         if !appDelegate.isResizing {
                             areaWidth = min(max(newValue, 1), screen.width)
                             resize()
@@ -54,7 +54,7 @@ struct resizeView: View {
                     .frame(width: 60)
                     .textFieldStyle(.roundedBorder)
                     .focused($focusedField, equals: .height)
-                    .onChange(of: areaHeight) { newValue in
+                    .onChange(of: areaHeight) { _, newValue in
                         if !appDelegate.isResizing {
                             areaHeight = min(max(newValue, 1), screen.height)
                             resize()

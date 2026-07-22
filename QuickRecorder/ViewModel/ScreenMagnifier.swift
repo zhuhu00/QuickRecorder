@@ -9,7 +9,6 @@ import SwiftUI
 struct ScreenMagnifier: View {
     @State var screenShot: NSImage!
     @State var scaleFactor = SCContext.getScreenWithMouse()?.backingScaleFactor ?? 1.0
-    var event: NSEvent!
     
     var body: some View {
         ZStack {

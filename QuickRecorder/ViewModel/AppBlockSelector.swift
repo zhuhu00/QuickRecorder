@@ -41,7 +41,7 @@ struct BundleSelector: View {
                 Bundles = decodedApps
             }
         }
-        .onChange(of: Bundles) { bundles in
+        .onChange(of: Bundles) { _, bundles in
             if let encodedData = try? JSONEncoder().encode(bundles) {
                 ud.set(encodedData, forKey: "hiddenApps")
             }
