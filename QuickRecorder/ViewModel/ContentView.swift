@@ -108,8 +108,9 @@ struct ContentView: View {
                                     if #available(macOS 14, *) {
                                         Picker("", selection: $micDevice) {
                                             Text("Default".local).tag("default")
-                                            ForEach(micList, id: \.self) { device in
-                                                Text(device.localizedName).tag(device.localizedName)
+                                            ForEach(micList, id: \.uniqueID) { device in
+                                                Text(SCContext.microphoneDisplayName(for: device, devices: micList))
+                                                    .tag(device.uniqueID)
                                             }
                                         }.frame(width: 90)
                                             .background(
@@ -128,23 +129,22 @@ struct ContentView: View {
                                             .padding(.leading, -10)
                                             .frame(width: 99)
                                             .onAppear{
-                                                let list = micList.map({ $0.localizedName })
-                                                if !list.contains(micDevice) { micDevice = "default" }
+                                                micDevice = SCContext.migrateMicrophoneSelectionIfNeeded(devices: micList)
                                             }
                                     } else {
                                         Spacer().frame(width: 6)
                                         Picker("", selection: $micDevice) {
                                             Text("Default".local).tag("default")
-                                            ForEach(micList, id: \.self) { device in
-                                                Text(device.localizedName).tag(device.localizedName)
+                                            ForEach(micList, id: \.uniqueID) { device in
+                                                Text(SCContext.microphoneDisplayName(for: device, devices: micList))
+                                                    .tag(device.uniqueID)
                                             }
                                         }
                                         .disabled(!recordMic)
                                         .padding(.leading, -7.5)
                                         .frame(width: 100)
                                         .onAppear{
-                                            let list = micList.map({ $0.localizedName })
-                                            if !list.contains(micDevice) { micDevice = "default" }
+                                            micDevice = SCContext.migrateMicrophoneSelectionIfNeeded(devices: micList)
                                         }
                                     }
                                 }.padding(.leading, -5)

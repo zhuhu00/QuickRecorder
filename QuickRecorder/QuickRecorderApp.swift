@@ -249,6 +249,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
                 "savedArea": [String: [String: CGFloat]]()
             ]
         )
+        SCContext.migrateMicrophoneSelectionIfNeeded()
         
         if highRes == 0 { highRes = 2 }
         if showOnDock { NSApp.setActivationPolicy(.regular) }

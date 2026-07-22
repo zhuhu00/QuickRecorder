@@ -138,8 +138,9 @@ struct OptionsView: View {
                         .disabled(micList.isEmpty)
                         Picker("", selection: $micDevice) {
                             Text("Default".local).tag("default")
-                            ForEach(micList, id: \.self) { device in
-                                Text(device.localizedName).tag(device.localizedName)
+                            ForEach(micList, id: \.uniqueID) { device in
+                                Text(SCContext.microphoneDisplayName(for: device, devices: micList))
+                                    .tag(device.uniqueID)
                             }
                         }
                         .disabled(!recordMic)
@@ -147,8 +148,7 @@ struct OptionsView: View {
                         .padding(.leading, isMacOS12 ? -7 : -16)
                         .frame(width: 90, height: isMacOS12 ? 20 :12)
                         .onAppear{
-                            let list = micList.map({ $0.localizedName })
-                            if !list.contains(micDevice) { micDevice = "default" }
+                            micDevice = SCContext.migrateMicrophoneSelectionIfNeeded(devices: micList)
                         }
                         Spacer().frame(width: 5)
                         if micDevice != "default" && enableAEC{
@@ -168,4 +168,3 @@ struct OptionsView: View {
         }
     }
 }
-

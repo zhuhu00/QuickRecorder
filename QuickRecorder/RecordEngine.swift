@@ -200,7 +200,9 @@ extension AppDelegate {
         
         let audioOnly = SCContext.streamType == .systemaudio
         let shouldRecordMicrophone = recordMic
-        let selectedMicrophone = shouldRecordMicrophone ? resolveMicrophoneSelection(micDevice) : micDevice
+        let selectedMicrophone = shouldRecordMicrophone
+            ? SCContext.migrateMicrophoneSelectionIfNeeded(micDevice)
+            : micDevice
         let selectedAEC = enableAEC
         var activeStream: SCStream?
         var createdOutputURL: URL?
@@ -637,7 +639,7 @@ extension AppDelegate {
             }
         } else {
             do {
-                try AudioRecorder.shared.setupAudioCapture()
+                try AudioRecorder.shared.setupAudioCapture(deviceID: microphoneDevice)
                 SCContext.setMicrophoneCaptureMode(.selectedDevice)
                 try AudioRecorder.shared.start()
             } catch {
@@ -651,15 +653,6 @@ extension AppDelegate {
                 )
             }
         }
-    }
-
-    private func resolveMicrophoneSelection(_ microphoneDevice: String) -> String {
-        guard microphoneDevice != "default",
-              !SCContext.getMicrophone().contains(where: { $0.localizedName == microphoneDevice }) else {
-            return microphoneDevice
-        }
-        ud.set("default", forKey: "micDevice")
-        return "default"
     }
 
     func handleSelectedMicrophoneDisconnect() {
@@ -901,12 +894,11 @@ class AudioRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private var audioDataOutput: AVCaptureAudioDataOutput?
     private let audioQueue = DispatchQueue(label: "io.github.zhuhu00.QuickRecorder.microphone-output")
 
-    func setupAudioCapture() throws {
+    func setupAudioCapture(deviceID: String) throws {
         NotificationCenter.default.removeObserver(self, name: AVCaptureDevice.wasDisconnectedNotification, object: nil)
         let session = AVCaptureSession()
 
-        // Get the default audio device (microphone)
-        guard let audioDevice = SCContext.getCurrentMic() else {
+        guard let audioDevice = SCContext.getMicrophone().first(where: { $0.uniqueID == deviceID }) else {
             throw RecordingStartError.microphoneUnavailable
         }
         

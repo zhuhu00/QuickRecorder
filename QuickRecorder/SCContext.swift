@@ -813,10 +813,48 @@ class SCContext {
         }
         return discoverySession.devices.filter({ !$0.localizedName.contains("CADefaultDeviceAggregate") })
     }
+
+    static func microphoneID(for selection: String, devices: [AVCaptureDevice]? = nil) -> String? {
+        let selection = selection.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !selection.isEmpty else { return nil }
+        if selection == "default" { return selection }
+
+        let devices = devices ?? getMicrophone()
+        if let device = devices.first(where: { $0.uniqueID == selection }) {
+            return device.uniqueID
+        }
+
+        let matchingNames = devices.filter({ $0.localizedName == selection })
+        guard matchingNames.count == 1 else { return nil }
+        return matchingNames[0].uniqueID
+    }
+
+    @discardableResult
+    static func migrateMicrophoneSelectionIfNeeded(
+        _ selection: String? = nil,
+        devices: [AVCaptureDevice]? = nil
+    ) -> String {
+        let savedSelection = selection ?? ud.string(forKey: "micDevice") ?? "default"
+        let resolvedSelection = microphoneID(for: savedSelection, devices: devices) ?? "default"
+        if ud.string(forKey: "micDevice") != resolvedSelection {
+            ud.set(resolvedSelection, forKey: "micDevice")
+        }
+        return resolvedSelection
+    }
+
+    static func microphoneDisplayName(for device: AVCaptureDevice, devices: [AVCaptureDevice]) -> String {
+        let hasDuplicateName = devices.contains(where: {
+            $0.uniqueID != device.uniqueID && $0.localizedName == device.localizedName
+        })
+        guard hasDuplicateName else { return device.localizedName }
+        return "\(device.localizedName) — \(device.uniqueID)"
+    }
     
     static func getCurrentMic() -> AVCaptureDevice? {
-        let deviceName = ud.string(forKey: "micDevice")
-        return getMicrophone().first(where: { $0.localizedName == deviceName })
+        let devices = getMicrophone()
+        let deviceID = migrateMicrophoneSelectionIfNeeded(devices: devices)
+        guard deviceID != "default" else { return nil }
+        return devices.first(where: { $0.uniqueID == deviceID })
     }
     
     /*static func getChannelCount() -> Int? {
