@@ -99,11 +99,55 @@ class SCContext {
         label: "io.github.zhuhu00.QuickRecorder.stream-output",
         qos: .userInitiated
     )
-    static var isStartingCapture = false
-    private(set) static var isStopping = false
+    private static let lifecycleLock = NSLock()
+    private static var recordingLifecycle = RecordingLifecycle()
+    static var isStartingCapture: Bool { lifecyclePhase == .starting }
+    static var isStopping: Bool { lifecyclePhase == .stopping }
     private static var stopCompletions = [() -> Void]()
     static var availableContent: SCShareableContent?
     static let excludedApps = ["", "com.apple.dock", "com.apple.screencaptureui", "com.apple.controlcenter", "com.apple.notificationcenterui", "com.apple.systemuiserver", "com.apple.WindowManager", "dev.mnpn.Azayaka", "com.gaosun.eul", "com.pointum.hazeover", "net.matthewpalmer.Vanilla", "com.dwarvesv.minimalbar", "com.bjango.istatmenus.status"]
+
+    private static var lifecyclePhase: RecordingLifecycle.Phase {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        return recordingLifecycle.phase
+    }
+
+    static func beginRecordingStart() -> Bool {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        return recordingLifecycle.beginStart()
+    }
+
+    static func completeRecordingStart() {
+        lifecycleLock.lock()
+        _ = recordingLifecycle.completeStart()
+        lifecycleLock.unlock()
+    }
+
+    static func failRecordingStart() {
+        lifecycleLock.lock()
+        recordingLifecycle.fail()
+        lifecycleLock.unlock()
+    }
+
+    private static func updateLifecyclePaused(_ paused: Bool) {
+        lifecycleLock.lock()
+        _ = recordingLifecycle.setPaused(paused)
+        lifecycleLock.unlock()
+    }
+
+    private static func beginRecordingStop() -> Bool {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        return recordingLifecycle.beginStop()
+    }
+
+    private static func finishRecordingLifecycle() {
+        lifecycleLock.lock()
+        recordingLifecycle.finish()
+        lifecycleLock.unlock()
+    }
     
     static func updateAvailableContentSync() -> SCShareableContent? {
         let semaphore = DispatchSemaphore(value: 0)
@@ -392,6 +436,7 @@ class SCContext {
         let paused = isPaused
         recordingTimelineLock.unlock()
 
+        updateLifecyclePaused(paused)
         PopoverState.shared.isPaused = paused
         if paused {
             timePassed = elapsed
@@ -594,14 +639,13 @@ class SCContext {
             return
         }
         if let completion { stopCompletions.append(completion) }
-        guard !isStopping else {
+        guard beginRecordingStop() else {
             if let streamError {
                 print("Stream stopped while recording was already finalizing: \(streamError.localizedDescription)")
             }
             return
         }
 
-        isStopping = true
         autoStop = 0
         if ud.bool(forKey: "preventSleep") { SleepPreventer.shared.allowSleep() }
         AppDelegate.shared.stopGlobalMouseMonitor()
@@ -779,7 +823,6 @@ class SCContext {
 
     private static func completeRecordingLifecycle() {
         DispatchQueue.main.async {
-            isStartingCapture = false
             resetRecordingTimeline()
             PopoverState.shared.isPaused = false
             hideMousePointer = false
@@ -793,7 +836,7 @@ class SCContext {
             firstFrame = nil
             AppDelegate.shared.presenterType = "OFF"
             controlPanel.close()
-            isStopping = false
+            finishRecordingLifecycle()
             updateStatusBar()
 
             let completions = stopCompletions

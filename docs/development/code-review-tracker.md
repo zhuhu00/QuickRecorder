@@ -51,7 +51,7 @@
 | QR-007 | P2 | 进行中 | 视频配置 | 已修复无效 `CMTime`，等待 30/60 FPS 真实录制验证 |
 | QR-008 | P2 | 已移除 | 手机录制 | Mobile Device 功能已整体删除，错误通知路径不再存在 |
 | QR-009 | P2 | 已完成 | 麦克风 | 已改用稳定 `uniqueID`，指定输入录制与断连默认输入降级均通过实测 |
-| QR-010 | P2 | 进行中 | 工程质量 | 普通构建项目警告已清零，仍需测试 Target、CI 和严格并发基线治理 |
+| QR-010 | P2 | 已完成 | 工程质量 | 已建立生命周期测试 Target、arm64 CI 和完整并发诊断基线 |
 | QR-011 | P2 | 进行中 | 构建分发 | Release 已限定 arm64 并使用开发签名，等待干净 Mac 手动放行验证 |
 | QR-012 | P3 | 待处理 | 开源发布 | README、版本、AGPL 和第三方依赖声明尚未按 Fork 发布整理 |
 | QR-013 | P3 | 已完成 | 系统兼容 | 已删除精确主版本判断和不可达分支，并迁移旧 SwiftUI/AVFoundation/截图 API |
@@ -201,12 +201,12 @@
 ### QR-010：缺少测试和 Swift 6 并发准备
 
 - 优先级：`P2`
-- 状态：`待处理`
+- 状态：`已完成`
 - 当前基线：
-  - 工程只有一个应用 Target，没有应用单元测试或 UI 测试 Target。
   - 最低版本提升到 macOS 14.2 后，普通 `arm64 Debug/Release` 的 QuickRecorder 项目代码警告已清零；Xcode 26.5 仍输出 1 条“未链接 AppIntents”的工具级元数据提示，项目本身不使用 AppIntents。
-  - 启用完整并发检查后共有 454 条警告，其中 175 处会在 Swift 6 模式下成为错误。
-- 修复方向：先为录制状态机、输出路径和设备选择抽出可测试逻辑；逐步隔离全局可变状态和 AppKit 主线程状态。
+  - 当前 Swift 5 工程启用 `SWIFT_STRICT_CONCURRENCY=complete` 仍会报告遗留全局共享状态和 AppKit actor 边界；CI 固定执行该诊断，升级 Swift 6 前需继续按模块迁移，不能用不安全标注掩盖。
+- 当前实现：新增生产代码实际使用的 `RecordingLifecycle` 状态机，并由 `SCContext` 的锁保护，`isStartingCapture` / `isStopping` 改为只读派生状态；新增 app-hosted `QuickRecorderTests` Target 与共享 Scheme，覆盖正常流程、Pause/Resume、失败重试、重复 Stop 和非法转换。GitHub Actions 使用 `macos-15` arm64 runner，无签名运行测试，并额外执行完整并发诊断构建。
+- 当前验证：本机 5 个 XCTest 全部通过；干净 arm64 Release 和 Analyze 通过且项目代码 warning 为 0；完整并发诊断构建成功并保留遗留诊断可见性。没有添加 `@unchecked Sendable`、`@preconcurrency` 或警告抑制。
 - 验收标准：
   1. 建立最小测试 Target 和 CI 构建任务。
   2. 核心状态机覆盖开始、暂停、恢复、停止、失败和重复停止。
@@ -404,6 +404,7 @@
 
 | 日期 | 变更 | 关联项 |
 | --- | --- | --- |
+| 2026-07-22 | 新增生产态 RecordingLifecycle、5 个 XCTest、共享测试 Scheme 与 arm64 GitHub Actions；CI 同时运行测试和 complete concurrency 诊断 | QR-010 |
 | 2026-07-22 | QMA 导出指示器移除无失效机制的 50 ms 重复 Timer，改用随视图生命周期启停的 SwiftUI 动画 | QR-018 |
 | 2026-07-22 | 删除精确系统版本与不可达兼容分支，迁移 SwiftUI、AVFoundation 和截图 API；普通 Debug/Release 项目警告由 44 条降至 0 | QR-013、QR-010 |
 | 2026-07-22 | Project、App Target、中英文 README 与构建产物统一为 Apple Silicon / macOS 14.2+；Debug、Release、Analyze、签名和固定调试版启动验证通过 | QR-006 |

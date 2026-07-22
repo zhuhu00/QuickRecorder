@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A10000000000000000000001 /* RecordingLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000003 /* RecordingLifecycle.swift */; };
+		A10000000000000000000002 /* RecordingLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000004 /* RecordingLifecycleTests.swift */; };
 		1821F2E82CF4B226004A2EC0 /* ContentViewNew.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1821F2E72CF4B226004A2EC0 /* ContentViewNew.swift */; };
 		184506CE2C69213400AFDA45 /* MatrixColorSelector in Frameworks */ = {isa = PBXBuildFile; productRef = 184506CD2C69213400AFDA45 /* MatrixColorSelector */; };
 		184CAEC72BDCCC2300D61D57 /* AVContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 184CAEC62BDCCC2300D61D57 /* AVContext.swift */; };
@@ -44,7 +46,20 @@
 		18FEBDB02BD2C0D1003F09BC /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18FEBDAF2BD2C0D1003F09BC /* SettingsView.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		A1000000000000000000000B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 18D3BDDF2BCE5DC1006CFFC0 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 18D3BDE62BCE5DC1006CFFC0;
+			remoteInfo = QuickRecorder;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		A10000000000000000000003 /* RecordingLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingLifecycle.swift; sourceTree = "<group>"; };
+		A10000000000000000000004 /* RecordingLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingLifecycleTests.swift; sourceTree = "<group>"; };
+		A10000000000000000000005 /* QuickRecorderTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = QuickRecorderTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		1821F2E72CF4B226004A2EC0 /* ContentViewNew.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentViewNew.swift; sourceTree = "<group>"; };
 		184CAEC62BDCCC2300D61D57 /* AVContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVContext.swift; sourceTree = "<group>"; };
 		184CAEC82BDDEC6800D61D57 /* AppBlockSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppBlockSelector.swift; sourceTree = "<group>"; };
@@ -89,6 +104,13 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		A10000000000000000000007 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		18D3BDE42BCE5DC1006CFFC0 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -127,6 +149,7 @@
 			isa = PBXGroup;
 			children = (
 				18D3BDE92BCE5DC1006CFFC0 /* QuickRecorder */,
+				A10000000000000000000006 /* QuickRecorderTests */,
 				18D3BDE82BCE5DC1006CFFC0 /* Products */,
 				181724062BE3BF2000F5F539 /* Frameworks */,
 			);
@@ -136,6 +159,7 @@
 			isa = PBXGroup;
 			children = (
 				18D3BDE72BCE5DC1006CFFC0 /* QuickRecorder.app */,
+				A10000000000000000000005 /* QuickRecorderTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -146,6 +170,7 @@
 				189BD5E82BDE34B80056D06C /* InfoPlist.strings */,
 				189BD5F62BDFDF200056D06C /* Info.plist */,
 				18D3BDEA2BCE5DC1006CFFC0 /* QuickRecorderApp.swift */,
+				A10000000000000000000003 /* RecordingLifecycle.swift */,
 				18FEBDA92BCF8200003F09BC /* RecordEngine.swift */,
 				18D3BE032BCEC847006CFFC0 /* SCContext.swift */,
 				184CAEC62BDCCC2300D61D57 /* AVContext.swift */,
@@ -158,6 +183,14 @@
 				18D3BDF02BCE5DC2006CFFC0 /* Preview Content */,
 			);
 			path = QuickRecorder;
+			sourceTree = "<group>";
+		};
+		A10000000000000000000006 /* QuickRecorderTests */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000004 /* RecordingLifecycleTests.swift */,
+			);
+			path = QuickRecorderTests;
 			sourceTree = "<group>";
 		};
 		18D3BDF02BCE5DC2006CFFC0 /* Preview Content */ = {
@@ -194,6 +227,24 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		A1000000000000000000000A /* QuickRecorderTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1000000000000000000000F /* Build configuration list for PBXNativeTarget "QuickRecorderTests" */;
+			buildPhases = (
+				A10000000000000000000009 /* Sources */,
+				A10000000000000000000007 /* Frameworks */,
+				A10000000000000000000008 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A1000000000000000000000C /* PBXTargetDependency */,
+			);
+			name = QuickRecorderTests;
+			productName = QuickRecorderTests;
+			productReference = A10000000000000000000005 /* QuickRecorderTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		18D3BDE62BCE5DC1006CFFC0 /* QuickRecorder */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 18D3BDF62BCE5DC2006CFFC0 /* Build configuration list for PBXNativeTarget "QuickRecorder" */;
@@ -227,6 +278,10 @@
 				LastSwiftUpdateCheck = 1510;
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
+					A1000000000000000000000A = {
+						CreatedOnToolsVersion = 16.0;
+						TestTargetID = 18D3BDE62BCE5DC1006CFFC0;
+					};
 					18D3BDE62BCE5DC1006CFFC0 = {
 						CreatedOnToolsVersion = 15.1;
 					};
@@ -255,11 +310,19 @@
 			projectRoot = "";
 			targets = (
 				18D3BDE62BCE5DC1006CFFC0 /* QuickRecorder */,
+				A1000000000000000000000A /* QuickRecorderTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		A10000000000000000000008 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		18D3BDE52BCE5DC1006CFFC0 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -276,10 +339,19 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		A10000000000000000000009 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000002 /* RecordingLifecycleTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		18D3BDE32BCE5DC1006CFFC0 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10000000000000000000001 /* RecordingLifecycle.swift in Sources */,
 				18FEBDAE2BD10ED1003F09BC /* ScreenSelector.swift in Sources */,
 				189BD5ED2BDE971B0056D06C /* VideoEditor.swift in Sources */,
 				189BD5F52BDF8A800056D06C /* CameraOverlayer.swift in Sources */,
@@ -309,6 +381,14 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A1000000000000000000000C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 18D3BDE62BCE5DC1006CFFC0 /* QuickRecorder */;
+			targetProxy = A1000000000000000000000B /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
 		1862BF8F2BD5494E003ED522 /* Credits.rtf */ = {
@@ -345,6 +425,38 @@
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
+		A1000000000000000000000D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = H7W4RZVP64;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.2;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.zhuhu00.QuickRecorderTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/QuickRecorder.app/Contents/MacOS/QuickRecorder";
+			};
+			name = Debug;
+		};
+		A1000000000000000000000E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = H7W4RZVP64;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.2;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.zhuhu00.QuickRecorderTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/QuickRecorder.app/Contents/MacOS/QuickRecorder";
+			};
+			name = Release;
+		};
 		18D3BDF42BCE5DC2006CFFC0 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -545,6 +657,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		A1000000000000000000000F /* Build configuration list for PBXNativeTarget "QuickRecorderTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1000000000000000000000D /* Debug */,
+				A1000000000000000000000E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		18D3BDE22BCE5DC1006CFFC0 /* Build configuration list for PBXProject "QuickRecorder" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

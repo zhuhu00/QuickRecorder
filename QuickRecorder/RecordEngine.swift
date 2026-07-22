@@ -208,7 +208,7 @@ extension AppDelegate {
         var createdOutputURL: URL?
         var microphoneStarted = false
         var captureStartAttempted = false
-        SCContext.isStartingCapture = true
+        guard SCContext.beginRecordingStart() else { return }
 
         do {
         
@@ -340,7 +340,7 @@ extension AppDelegate {
         }
         captureStartAttempted = true
         try await stream.startCapture()
-        SCContext.isStartingCapture = false
+        SCContext.completeRecordingStart()
         } catch {
             await rollbackRecordingStart(
                 stream: activeStream,
@@ -673,7 +673,7 @@ extension AppDelegate {
         SCContext.filePath2 = nil
 
         await MainActor.run {
-            SCContext.isStartingCapture = false
+            SCContext.failRecordingStart()
             SCContext.filter = nil
             SCContext.stream = nil
             SCContext.streamType = nil
