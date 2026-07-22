@@ -9,6 +9,26 @@ import Foundation
 import AVFoundation
 import SwiftUI
 
+private enum QMAExportError: LocalizedError {
+    case emptyAudio
+    case renderBufferUnavailable
+    case renderingFailed
+    case renderingStalled
+
+    var errorDescription: String? {
+        switch self {
+        case .emptyAudio:
+            return "The QMA package does not contain audio to export.".local
+        case .renderBufferUnavailable:
+            return "Unable to prepare the audio mixing buffer.".local
+        case .renderingFailed:
+            return "Audio mixing failed.".local
+        case .renderingStalled:
+            return "Audio mixing stopped because the renderer made no progress.".local
+        }
+    }
+}
+
 private struct ActivityIndicator: View {
     @State private var currentDegrees = 0.0
 
@@ -421,6 +441,9 @@ extension qmaPackageHandle {
 }
 
 class AudioPlayerManager: ObservableObject {
+    private static let maximumOfflineRenderStallAttempts = 200
+    private static let offlineRenderRetryDelay = 0.01
+
     @Published var progress: Double = 0.0
     @Published var isPlaying: Bool = false
     @Published var shouldPlay: Bool = false
@@ -607,41 +630,7 @@ class AudioPlayerManager: ObservableObject {
                 guard let audioFile1 = self.audioFile1, let audioFile2 = self.audioFile2 else {
                     throw CocoaError(.fileReadCorruptFile)
                 }
-                self.playerNode1.scheduleFile(audioFile1, at: nil, completionHandler: nil)
-                self.playerNode2.scheduleFile(audioFile2, at: nil, completionHandler: nil)
-                
-                let audioSettings = SCContext.updateAudioSettings(format: self.fileEncoder)
-                let outputFormat = self.playerNode1.outputFormat(forBus: 0)
-                var outputFile: AVAudioFile? = try AVAudioFile(forWriting: url, settings: audioSettings, commonFormat: .pcmFormatFloat32, interleaved: false)
-                self.engine.stop()
-                try self.engine.enableManualRenderingMode(.offline, format: outputFormat, maximumFrameCount: 4096)
-                try self.engine.start()
-                
-                self.playerNode1.play()
-                self.playerNode2.play()
-                
-                let duration = audioFile1.length
-                let buffer = AVAudioPCMBuffer(pcmFormat: self.engine.manualRenderingFormat, frameCapacity: self.engine.manualRenderingMaximumFrameCount)!
-                
-                while self.engine.manualRenderingSampleTime < duration {
-                    let framesToRender = min(UInt32(buffer.frameCapacity), UInt32(duration - self.engine.manualRenderingSampleTime))
-                    let status = try self.engine.renderOffline(framesToRender, to: buffer)
-                    switch status {
-                    case .success:
-                        try outputFile?.write(from: buffer)
-                    case .insufficientDataFromInputNode, .cannotDoInCurrentContext:
-                        // Handle the cases where rendering cannot proceed
-                        break
-                    default:
-                        // Handle other cases if needed
-                        break
-                    }
-                }
-                
-                self.engine.disableManualRenderingMode()
-                self.engine.stop()
-                self.setupAudioEngine()
-                outputFile = nil
+                try self.renderMixedAudio(audioFile1: audioFile1, audioFile2: audioFile2, to: url)
                 
                 let title = "Recording Completed".local
                 var body = String(format: "File saved to: %@".local, url.path.removingPercentEncoding!)
@@ -675,6 +664,104 @@ class AudioPlayerManager: ObservableObject {
             self.finishExporting()
             completion?()
         }
+    }
+
+    private func renderMixedAudio(audioFile1: AVAudioFile, audioFile2: AVAudioFile, to url: URL) throws {
+        let outputFormat = playerNode1.outputFormat(forBus: 0)
+        let duration1 = Double(audioFile1.length) / audioFile1.processingFormat.sampleRate
+        let duration2 = Double(audioFile2.length) / audioFile2.processingFormat.sampleRate
+        let duration = max(duration1, duration2)
+        let totalFrameCountValue = ceil(duration * outputFormat.sampleRate)
+        guard duration.isFinite,
+              duration > 0,
+              outputFormat.sampleRate > 0,
+              totalFrameCountValue.isFinite,
+              totalFrameCountValue > 0,
+              totalFrameCountValue <= Double(Int64.max) else {
+            throw QMAExportError.emptyAudio
+        }
+        let totalFrameCount = AVAudioFramePosition(totalFrameCountValue)
+
+        let audioSettings = SCContext.updateAudioSettings(format: fileEncoder)
+        let outputFile = try AVAudioFile(
+            forWriting: url,
+            settings: audioSettings,
+            commonFormat: .pcmFormatFloat32,
+            interleaved: false
+        )
+        var renderCompleted = false
+        defer {
+            if !renderCompleted {
+                try? fd.removeItem(at: url)
+            }
+        }
+
+        engine.stop()
+        var engineRestored = false
+        defer {
+            if !engineRestored {
+                engine.disableManualRenderingMode()
+                do {
+                    try engine.start()
+                } catch {
+                    print("Audio engine restore error: \(error.localizedDescription)")
+                }
+            }
+        }
+        try engine.enableManualRenderingMode(.offline, format: outputFormat, maximumFrameCount: 4096)
+
+        playerNode1.scheduleFile(audioFile1, at: nil, completionHandler: nil)
+        playerNode2.scheduleFile(audioFile2, at: nil, completionHandler: nil)
+        try engine.start()
+        playerNode1.play()
+        playerNode2.play()
+
+        guard let buffer = AVAudioPCMBuffer(
+            pcmFormat: engine.manualRenderingFormat,
+            frameCapacity: engine.manualRenderingMaximumFrameCount
+        ) else {
+            throw QMAExportError.renderBufferUnavailable
+        }
+
+        var consecutiveStallAttempts = 0
+        while engine.manualRenderingSampleTime < totalFrameCount {
+            let sampleTimeBeforeRender = engine.manualRenderingSampleTime
+            let remainingFrameCount = totalFrameCount - sampleTimeBeforeRender
+            let framesToRender = AVAudioFrameCount(
+                min(AVAudioFramePosition(buffer.frameCapacity), remainingFrameCount)
+            )
+            buffer.frameLength = 0
+            let status = try engine.renderOffline(framesToRender, to: buffer)
+            let madeProgress = engine.manualRenderingSampleTime > sampleTimeBeforeRender
+
+            switch status {
+            case .success, .insufficientDataFromInputNode:
+                if madeProgress, buffer.frameLength > 0 {
+                    try outputFile.write(from: buffer)
+                }
+            case .cannotDoInCurrentContext:
+                break
+            case .error:
+                throw QMAExportError.renderingFailed
+            @unknown default:
+                throw QMAExportError.renderingFailed
+            }
+
+            if madeProgress {
+                consecutiveStallAttempts = 0
+            } else {
+                consecutiveStallAttempts += 1
+                guard consecutiveStallAttempts < Self.maximumOfflineRenderStallAttempts else {
+                    throw QMAExportError.renderingStalled
+                }
+                Thread.sleep(forTimeInterval: Self.offlineRenderRetryDelay)
+            }
+        }
+
+        engine.disableManualRenderingMode()
+        try engine.start()
+        engineRestored = true
+        renderCompleted = true
     }
 
     private func finishExporting() {

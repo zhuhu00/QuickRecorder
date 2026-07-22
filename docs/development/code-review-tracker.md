@@ -33,12 +33,12 @@
 
 当前代码可以在 Apple Silicon Mac 上生成原生 `arm64` 应用，不依赖 Rosetta。最近一次复查中，Release 构建与 Xcode 静态分析均成功，本地化资源和 `git diff --check` 也通过；但“能够构建”仍不等于“适合公开分发”。当前主要风险是：
 
-1. QMA 离线渲染遇到异常轨道时可能没有进度，导致录制长期卡在 `Processing...`。
-2. SwiftUI Delegate 与 `AppDelegate.shared` 仍是两个实例，部分入口可能读写不同的录制状态。
-3. 外接麦克风仍按名称保存，同名设备无法稳定区分。
-4. Release 仍注入 `get-task-allow` 调试权限，且缺少自动化测试、干净 Mac 分发验证和完整 Fork 发布资料。
+1. SwiftUI Delegate 与 `AppDelegate.shared` 仍是两个实例，部分入口可能读写不同的录制状态。
+2. 外接麦克风仍按名称保存，同名设备无法稳定区分。
+3. Release 仍注入 `get-task-allow` 调试权限。
+4. 项目仍缺少自动化测试、干净 Mac 分发验证和完整 Fork 发布资料。
 
-`QR-001` 至 `QR-005` 与 `QR-014` 均已完成代码、构建和真实场景验证，当前没有未完成的 P1。后续工作以 P2 稳定性和公开分发准备为主。
+`QR-001` 至 `QR-005`、`QR-014` 与 `QR-015` 均已完成代码、构建和真实场景验证，当前没有未完成的 P1。后续工作以 P2 稳定性和公开分发准备为主。
 
 ## 3. 问题总表
 
@@ -58,7 +58,7 @@
 | QR-012 | P3 | 待处理 | 开源发布 | README、版本、AGPL 和第三方依赖声明尚未按 Fork 发布整理 |
 | QR-013 | P3 | 待处理 | 系统兼容 | 使用精确主版本判断，较新 macOS 会遗漏部分分支逻辑 |
 | QR-014 | P1 | 已完成 | 暂停恢复 | 画面、系统音频和麦克风统一时间轴已通过实机验证 |
-| QR-015 | P2 | 待处理 | QMA 导出 | 离线渲染无进度时可能无限循环并卡在 Processing |
+| QR-015 | P2 | 已完成 | QMA 导出 | 有界重试、较长轨时长和失败清理已通过实机验证 |
 | QR-016 | P2 | 待处理 | 应用状态 | SwiftUI Delegate 与 `AppDelegate.shared` 是两个实例 |
 | QR-017 | P2 | 待处理 | 构建分发 | Release 仍包含 `com.apple.security.get-task-allow = true` |
 | QR-018 | P3 | 待处理 | QMA 界面 | 导出指示器的重复 Timer 没有失效机制 |
@@ -276,10 +276,12 @@
 ### QR-015：QMA 离线渲染可能无限循环
 
 - 优先级：`P2`
-- 状态：`待处理`
+- 状态：`已完成`
 - 证据：`QuickRecorder/ViewModel/QmaPlayer.swift:626-638`
 - 问题：`renderOffline` 返回 `.insufficientDataFromInputNode` 或 `.cannotDoInCurrentContext` 时，当前 `break` 只退出 `switch`，不会退出外层 `while`。若 `manualRenderingSampleTime` 没有增长，线程会持续空转；自动 QMA 导出不会调用 completion，录制生命周期会一直停在 `Processing...`，退出 App 也可能永久等待。
 - 修复方向：检测每轮渲染是否有时间进度，对可重试状态设置有限重试次数或短暂退避；超过阈值后抛出可恢复错误。用 `defer` 统一退出手动渲染模式、停止 Engine、恢复播放 Engine 并确保 completion 只执行一次。
+- 当前实现：离线渲染按两轨真实时长的较大值计算总 frame；`.success` 和有有效数据的 `.insufficientDataFromInputNode` 会写入 buffer。每轮比较 `manualRenderingSampleTime`，连续 200 次无进度时按 10 ms 间隔有界失败。manual mode 切换前已经建立清理 `defer`，成功或失败都恢复实时 Engine；失败删除不完整输出、保留 QMA并执行 completion。
+- 当前验证：`arm64 Debug`、`arm64 Release` 与 Xcode Analyze 均通过，三份本地化资源和 `git diff --check` 通过；固定路径签名 Debug App（Team `H7W4RZVP64`）已重启。用户已完成正常系统音频＋麦克风自动混音实测，确认 `Processing...` 正常退出且最终文件合理。
 - 验收标准：
   1. 正常 QMA、两轨长度不同和损坏 QMA 都能在有限时间内成功或失败，不出现无限循环。
   2. 导出失败时发送失败通知、保留 QMA，并最终将 `isStopping` 恢复为 `false`。
@@ -387,17 +389,18 @@
 
 以下顺序按风险优先；`QR-001` 至 `QR-004` 已完成，不再重复安排：
 
-1. `QR-015`：为 QMA 离线渲染增加有界失败，保证 Processing 和退出流程一定结束。
-2. `QR-017`：移除 Release 的 `get-task-allow`；改动较小，可与上述修复一起验证。
-3. `QR-009`、`QR-016`：改用稳定设备 ID，并统一唯一 App Delegate/状态拥有者。
-4. `QR-006`、`QR-007`、`QR-013`：收敛最低系统版本、实际帧率和新版 macOS 能力判断。
-5. `QR-010`：建立测试 Target 和 CI，覆盖开始、暂停、恢复、停止及失败状态机。
-6. `QR-011`、`QR-012`、`QR-018`：完成干净 Mac 验证、Fork 发布资料和低优先级 UI 生命周期清理。
+1. `QR-017`：移除 Release 的 `get-task-allow`；不影响 Debug 调试能力。
+2. `QR-009`、`QR-016`：改用稳定设备 ID，并统一唯一 App Delegate/状态拥有者。
+3. `QR-006`、`QR-007`、`QR-013`：收敛最低系统版本、实际帧率和新版 macOS 能力判断。
+4. `QR-010`：建立测试 Target 和 CI，覆盖开始、暂停、恢复、停止及失败状态机。
+5. `QR-011`、`QR-012`、`QR-018`：完成干净 Mac 验证、Fork 发布资料和低优先级 UI 生命周期清理。
 
 ## 8. 变更记录
 
 | 日期 | 变更 | 关联项 |
 | --- | --- | --- |
+| 2026-07-22 | 用户完成正常 QMA 自动混音实测，确认 Processing 正常退出且最终文件合理；QR-015 标记完成 | QR-015 |
+| 2026-07-22 | QMA 离线混音按较长轨时长渲染，写入可用的 insufficient-data frame，并以连续无进度上限保证失败路径恢复 Engine、保留 QMA和结束 Processing | QR-015 |
 | 2026-07-22 | 用户完成外接麦克风断开与 Pause/Resume 真实录制验证，确认默认输入接续、录制不中断且三路时间轴同步合理；两项标记完成 | QR-005、QR-014 |
 | 2026-07-22 | 指定麦克风缺失或录制中断开时自动降级到 macOS 默认输入；默认输入不可用时保持系统音频/视频继续，且不修改系统输出设备 | QR-005、QR-009 |
 | 2026-07-22 | 用共享 host-clock 暂停区间统一画面、系统音频和三类麦克风时间轴；修正 SampleBuffer timing entry 复制方式 | QR-014 |

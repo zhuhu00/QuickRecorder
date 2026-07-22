@@ -203,6 +203,10 @@
 "The selected microphone is unavailable. Recording will use the default microphone." = "所選麥克風不可用，錄製將使用預設麥克風。";
 "The selected microphone was disconnected. Recording continues with the default microphone." = "所選麥克風已斷開，錄製將繼續使用預設麥克風。";
 "The default microphone is unavailable. System audio and video recording will continue without the microphone." = "預設麥克風不可用，系統音訊和影片將繼續錄製，但不再錄製麥克風。";
+"The QMA package does not contain audio to export." = "QMA 檔案中沒有可匯出的音訊。";
+"Unable to prepare the audio mixing buffer." = "無法準備音訊混音緩衝區。";
+"Audio mixing failed." = "音訊混音失敗。";
+"Audio mixing stopped because the renderer made no progress." = "音訊混音沒有進度，已停止匯出以避免一直卡住。";
 
 // Please don't translate the following warning strings, it will make it difficult for me to read the logs
 "failed to fetch file for size indicator: %@" = "获取文件大小失败: ";
