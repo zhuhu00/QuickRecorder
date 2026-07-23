@@ -10,19 +10,41 @@ import SwiftUI
 private let statusBarPopover = NSPopover()
 private let recordingStatusViewIdentifier = NSUserInterfaceItemIdentifier("QuickRecorderRecordingStatusView")
 
-private final class StatusBarActionTarget: NSObject {
+extension Notification.Name {
+    static let quickRecorderPanelDidOpen = Notification.Name("QuickRecorderPanelDidOpen")
+    static let quickRecorderPanelDidClose = Notification.Name("QuickRecorderPanelDidClose")
+}
+
+func closeStatusBarPopover() {
+    CompactSettingsPanelCoordinator.shared.hide()
+    statusBarPopover.performClose(nil)
+}
+
+private final class StatusBarActionTarget: NSObject, NSPopoverDelegate {
     static let shared = StatusBarActionTarget()
+    private lazy var recorderController = NSHostingController(rootView: AnyView(ContentViewNew()))
 
     @objc func togglePopover(_ sender: NSStatusBarButton) {
         if statusBarPopover.isShown {
-            statusBarPopover.performClose(nil)
+            closeStatusBarPopover()
             return
         }
 
         statusBarPopover.behavior = .transient
-        statusBarPopover.contentViewController = NSHostingController(rootView: AnyView(ContentViewNew()))
+        statusBarPopover.delegate = self
+        if statusBarPopover.contentViewController !== recorderController {
+            statusBarPopover.contentViewController = recorderController
+        }
         statusBarPopover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
         DispatchQueue.main.async { restoreCameraOverlayerIfNeeded() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            NotificationCenter.default.post(name: .quickRecorderPanelDidOpen, object: nil)
+        }
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        CompactSettingsPanelCoordinator.shared.hide()
+        NotificationCenter.default.post(name: .quickRecorderPanelDidClose, object: nil)
     }
 }
 
@@ -190,7 +212,7 @@ func updateStatusBar() {
             .forEach { $0.removeFromSuperview() }
 
         if SCContext.streamType == nil && !ud.bool(forKey: "showMenubar") {
-            statusBarPopover.performClose(nil)
+            closeStatusBarPopover()
             statusBarItem.isVisible = false
             return
         }
@@ -200,7 +222,7 @@ func updateStatusBar() {
             return
         }
 
-        statusBarPopover.performClose(nil)
+        closeStatusBarPopover()
         button.image = nil
         button.title = ""
         button.target = nil

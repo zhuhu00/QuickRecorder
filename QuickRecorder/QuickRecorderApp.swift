@@ -40,6 +40,49 @@ enum AppRuntime {
     }
 }
 
+enum CompactRecorderPreferences {
+    static func apply(to defaults: UserDefaults) {
+        let supportedAudioFormats = [AudioFormat.aac.rawValue, AudioFormat.mp3.rawValue]
+        if !supportedAudioFormats.contains(defaults.string(forKey: "audioFormat") ?? "") {
+            defaults.set(AudioFormat.aac.rawValue, forKey: "audioFormat")
+        }
+
+        let supportedAudioQualities = [AudioQuality.good.rawValue, AudioQuality.high.rawValue]
+        if !supportedAudioQualities.contains(defaults.integer(forKey: "audioQuality")) {
+            defaults.set(AudioQuality.high.rawValue, forKey: "audioQuality")
+        }
+
+        defaults.set(0, forKey: "countdown")
+        defaults.set(1, forKey: "poSafeDelay")
+        defaults.set(BackgroundType.wallpaper.rawValue, forKey: "background")
+        defaults.set(false, forKey: "trimAfterRecord")
+        defaults.set(false, forKey: "includeMenuBar")
+        defaults.set(false, forKey: "hideCCenter")
+        defaults.set(false, forKey: "hideDesktopFiles")
+        defaults.set(false, forKey: "highlightMouse")
+        defaults.set(true, forKey: "remuxAudio")
+        defaults.set(false, forKey: "enableAEC")
+        defaults.set(true, forKey: "preventSleep")
+        defaults.set(true, forKey: "hideSelf")
+        defaults.set(VideoFormat.mp4.rawValue, forKey: "videoFormat")
+        defaults.set(Encoder.defaultValue.rawValue, forKey: "encoder")
+        defaults.set(1.0, forKey: "videoQuality")
+        defaults.set(false, forKey: "recordHDR")
+        defaults.set(false, forKey: "withAlpha")
+
+        if !hasReachableAppEntry(
+            showOnDock: defaults.bool(forKey: "showOnDock"),
+            showMenubar: defaults.bool(forKey: "showMenubar")
+        ) {
+            defaults.set(true, forKey: "showMenubar")
+        }
+    }
+
+    static func hasReachableAppEntry(showOnDock: Bool, showMenubar: Bool) -> Bool {
+        showOnDock || showMenubar
+    }
+}
+
 @main
 struct QuickRecorderApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
@@ -62,27 +105,6 @@ struct QuickRecorderApp: App {
             CommandGroup(replacing: .textEditing) {}
         }
         
-        Settings {
-            SettingsView()
-                .background(
-                    WindowAccessor(
-                        onWindowOpen: { w in
-                            if let w {
-                                w.titlebarSeparatorStyle = .none
-                                if let nsSplitView = findNSSplitVIew(view: w.contentView),
-                                   let controller = nsSplitView.delegate as? NSSplitViewController {
-                                    controller.splitViewItems.first?.canCollapse = false
-                                    controller.splitViewItems.first?.minimumThickness = 140
-                                    controller.splitViewItems.first?.maximumThickness = 140
-                                }
-                                NSApp.activate(ignoringOtherApps: true)
-                                w.makeKeyAndOrderFront(nil)
-                            }
-                        })
-                )
-        }
-        .handlesExternalEvents(matching: [])
-        .commands { CommandGroup(replacing: .newItem) {} }
     }
 }
 
@@ -133,7 +155,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
     @AppStorage("countdown")        var countdown: Int = 0
     @AppStorage("poSafeDelay")      var poSafeDelay: Int = 1
     @AppStorage("highlightMouse")   var highlightMouse: Bool = false
-    @AppStorage("includeMenuBar")   var includeMenuBar: Bool = true
+    @AppStorage("includeMenuBar")   var includeMenuBar: Bool = false
     @AppStorage("hideDesktopFiles") var hideDesktopFiles: Bool = false
     @AppStorage("trimAfterRecord")  var trimAfterRecord: Bool = false
     @AppStorage("hideSelf")         var hideSelf: Bool = true
@@ -247,7 +269,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
                 "hideSelf": true,
                 "highlightMouse" : false,
                 "hideDesktopFiles": false,
-                "includeMenuBar": true,
+                "includeMenuBar": false,
                 "videoQuality": 1.0,
                 "countdown": 0,
                 "cameraDevice": "default",
@@ -266,12 +288,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
                 "showMenubar": true,
                 "enableAEC": false,
                 "recordHDR": false,
+                "withAlpha": false,
                 "preventSleep": true,
                 "showPreview": true,
+                "hideCCenter": false,
                 "savedArea": [String: [String: CGFloat]]()
             ]
         )
         ud.set(recordingIndicatorStyle.rawValue, forKey: "recordingIndicatorStyle")
+        CompactRecorderPreferences.apply(to: ud)
         SCContext.migrateMicrophoneSelectionIfNeeded()
         
         if highRes == 0 { highRes = 2 }
@@ -369,11 +394,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
 
         closeAllWindow()
         if showOnDock { _ = applicationShouldHandleReopen(NSApp, hasVisibleWindows: true) }
-        if encoder == .h264 {
-            tips("Would you like to use H.265 format for better video quality and smaller file size?",
-                 id: "qr.switch-to-h265.note", buttonTitle: "Use H.265", switchButton: true) {
-                self.encoder = .h265
-            }
+        DispatchQueue.main.async {
+            CompactSettingsPanelCoordinator.shared.prepare()
         }
     }
     
@@ -381,13 +403,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
         guard !AppRuntime.isRunningUnitTests else { return false }
 
         if SCContext.stream == nil {
-            let w1 = NSApp.windows.filter({ !$0.title.contains("Item-0") && !$0.title.isEmpty && $0.isVisible })
-            let w2 = w1.filter({ !$0.title.contains(".qma") })
-            if (!w1.isEmpty && w2.isEmpty) || w1.isEmpty {
-                let offset = (!showOnDock && !showMenubar) ? 127 : 0
-                let width = 674
-                let mainPanel = EscPanel(contentRect: NSRect(x: 0, y: 0, width: width + offset, height: 100), styleMask: [.fullSizeContentView, .nonactivatingPanel], backing: .buffered, defer: false)
-                mainPanel.contentView = NSHostingView(rootView: ContentView())
+            if let mainPanel = NSApp.windows.first(where: { $0.title == "QuickRecorder".local && $0.isVisible }) {
+                mainPanel.makeKeyAndOrderFront(self)
+            } else {
+                let mainPanel = EscPanel(
+                    contentRect: NSRect(
+                        x: 0,
+                        y: 0,
+                        width: CompactRecorderLayout.width,
+                        height: CompactRecorderLayout.collapsedHeight
+                    ),
+                    styleMask: [.fullSizeContentView, .nonactivatingPanel],
+                    backing: .buffered,
+                    defer: false
+                )
+                mainPanel.contentView = NSHostingView(rootView: ContentViewNew(fromStatusBar: false))
                 mainPanel.title = "QuickRecorder".local
                 mainPanel.isOpaque = false
                 mainPanel.level = .floating
@@ -409,11 +439,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
         return false
     }
     
-    func openSettingPanel() {
-        NSApp.activate(ignoringOtherApps: true)
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-    }
-    
     class EscPanel: NSPanel {
         override func cancelOperation(_ sender: Any?) {
             self.close()
@@ -425,6 +450,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
 }
 
 func closeMainWindow() {
+    CompactSettingsPanelCoordinator.shared.hide()
     for w in NSApp.windows.filter({ $0.title == "QuickRecorder".local }) {
         w.close()
     }
@@ -437,18 +463,6 @@ func closeAllWindow(except: String = "") {
         && !$0.title.lowercased().contains(".qma")
         && !$0.title.contains(except)
         && !(shouldKeepCamera && $0 === camWindow) }) { w.close() }
-}
-
-func findNSSplitVIew(view: NSView?) -> NSSplitView? {
-    var queue = [NSView]()
-    if let root = view { queue.append(root) }
-    
-    while !queue.isEmpty {
-        let current = queue.removeFirst()
-        if current is NSSplitView { return current as? NSSplitView }
-        for subview in current.subviews { queue.append(subview) }
-    }
-    return nil
 }
 
 func getStatusBarWidth() -> CGFloat {

@@ -1,261 +1,361 @@
 //
-//  ContentView.swift
+//  ContentViewNew.swift
 //  QuickRecorder
 //
-//  Created by apple on 2024/4/16.
-//
 
+import AppKit
 import SwiftUI
 import AVFoundation
 import ScreenCaptureKit
 
+enum CompactRecorderLayout {
+    static let width: CGFloat = 850
+    static let collapsedHeight: CGFloat = 80
+    static let settingsPanelCollapsedHeight: CGFloat = 166
+    static let settingsPanelExpandedHeight: CGFloat = 380
+    static let settingsPanelGap: CGFloat = 8
+    static let menuBarWidth: CGFloat = 416
+    static let menuBarHeight: CGFloat = 150
+    static let menuBarSettingsCollapsedHeight: CGFloat = 440
+    static let menuBarSettingsExpandedHeight: CGFloat = 690
+}
+
 struct ContentViewNew: View {
-    @State private var window: NSWindow?
-    @State private var xmarkGlowing = false
-    @State private var infoGlowing = false
-    @State private var micGlowing = false
+    let fromStatusBar: Bool
+
+    @State private var panelWindow: NSWindow?
+    @State private var inlineSettingsVisible = false
+    @State private var menuBarHotkeysExpanded = false
+    @ObservedObject private var settingsPanel = CompactSettingsPanelCoordinator.shared
     @State private var cameraIsRunning = false
-    @State private var cameraList = SCContext.getCameras()
-    @State private var micList = SCContext.getMicrophone()
-    @AppStorage("enableAEC") private var enableAEC: Bool = false
+    @State private var cameraList: [AVCaptureDevice] = []
+    @State private var micList: [AVCaptureDevice] = []
+    @State private var defaultMicrophoneName: String?
+    @State private var hasLoadedDevices = false
+
     @AppStorage("cameraDevice") private var cameraDevice: String = "default"
     @AppStorage("recordMic") private var recordMic: Bool = false
     @AppStorage("micDevice") private var micDevice: String = "default"
     @AppStorage("showMouse") private var showMouse: Bool = true
-    @AppStorage("showOnDock") private var showOnDock: Bool = true
-    @AppStorage("showMenubar") private var showMenubar: Bool = true
 
-    var appDelegate = AppDelegate.shared
-    
+    private let appDelegate = AppDelegate.shared
+
+    init(fromStatusBar: Bool = true) {
+        self.fromStatusBar = fromStatusBar
+    }
+
     var body: some View {
-        ZStack {
-            ZStack {
-                if isTodayChristmas() && isAllowChristmas() {
-                    let images = ["snowflake1", "snowflake2", "snowflake3", "christmasTree1", "christmasTree2"]
-                    SurpriseView(snowflakes: images, width: 520, height: 200, velocity: 16, lifetime: 30, alphaSpeed: -0.05)
-                } else if isChineseNewYear() && isAllowChineseNewYear() {
-                    let images = ["fuzi1", "fuzi2", "fuzi3", "hongbao1", "hongbao2", "hongbao3", "bianpao1", "bianpao2", "bianpao3"]
-                    SurpriseView(snowflakes: images, width: 520, height: 200, velocity: 16, lifetime: 30, alphaSpeed: -0.05)
-                }
-            }.opacity(0.5)
-            VStack {
-                HStack {
-                    Button(action: {
-                        closeMainWindow()
-                        appDelegate.createNewWindow(view: ScreenSelector(), title: "Screen Selector".local)
-                    }, label: {
-                        SelectorView(title: "Screen".local, symbol: "tv.inset.filled").cornerRadius(8)
-                    }).buttonStyle(.plain)
-                    Divider().frame(height: 70)
-                    Button(action: {
-                        closeMainWindow()
-                        SCContext.updateAvailableContent {
-                            DispatchQueue.main.async {
-                                appDelegate.showAreaSelector(size: NSSize(width: 600, height: 450))
-                                var currentDisplay = SCContext.getSCDisplayWithMouse()
-                                mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .rightMouseDown, .leftMouseDown, .otherMouseDown]) { event in
-                                    let display = SCContext.getSCDisplayWithMouse()
-                                    if display != currentDisplay {
-                                        currentDisplay = display
-                                        closeAllWindow()
-                                        appDelegate.showAreaSelector(size: NSSize(width: 600, height: 450))
-                                    }
-                                }
-                            }
-                        }
-                    }, label: {
-                        SelectorView(title: "Screen Area".local, symbol: "viewfinder").cornerRadius(8)
-                    }).buttonStyle(.plain)
-                    Divider().frame(height: 70)
-                    Button(action: {
-                        closeMainWindow()
-                        appDelegate.createNewWindow(view: WinSelector(), title: "Window Selector".local)
-                    }, label: {
-                        SelectorView(title: "Window".local, symbol: "macwindow").cornerRadius(8)
-                    }).buttonStyle(.plain)
-                }
-                HStack(spacing: 27) {
-                    VStack { Divider().frame(width: 100) }
-                    VStack { Divider().frame(width: 100) }
-                    VStack { Divider().frame(width: 100) }
-                }
-                HStack {
-                    ZStack(alignment: Alignment(horizontal: .center, vertical: .bottom)) {
-                        Button(action: {
-                            if let display = SCContext.getSCDisplayWithMouse() {
-                                closeMainWindow()
-                                appDelegate.createCountdownPanel(screen: display) {
-                                    AppDelegate.shared.prepRecord(type: "audio", screens: SCContext.getSCDisplayWithMouse(), windows: nil)
-                                }
-                            }
-                        }, label: {
-                            SelectorView(title: "System Audio".local, symbol: "waveform").cornerRadius(8)
-                        }).buttonStyle(.plain)
-                        Button {} label: {
-                            HStack(spacing: -2) {
-                                Button {
-                                    recordMic.toggle()
-                                } label: {
-                                    ZStack {
-                                        Image(systemName: "square.fill")
-                                            .font(.system(size: 15, weight: .medium))
-                                            .foregroundColor(.primary)
-                                            .colorInvert()
-                                            .opacity(0.2)
-                                        Image(systemName: recordMic ? "checkmark.square" : "square")
-                                            .font(.system(size: 16, weight: .medium))
-                                    }
-                                }
-                                .buttonStyle(.plain)
-                                .onChange(of: recordMic) { Task { await SCContext.performMicCheck() } }
-                                if micDevice != "default" && enableAEC && recordMic{
-                                    Button {
-                                        let alert = createAlert(
-                                            title: "Compatibility Warning".local,
-                                            message: "The \"Acoustic Echo Cancellation\" is enabled, but it won't work on now.\n\nIf you need to use a specific input with AEC, set it to \"Default\" and select the device you want in System Preferences.\n\nOr you can start recording without AEC.".local,
-                                            button1: "OK".local, button2: "System Preferences".local)
-                                        if alert.runModal() == .alertSecondButtonReturn {
-                                            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.sound?input")!)
-                                        }
-                                    } label: {
-                                        ZStack {
-                                            Image(systemName: "circle.fill").font(.system(size: 15))
-                                            Image(systemName: "exclamationmark")
-                                                .font(.system(size: 11.5, weight: .black))
-                                                .foregroundColor(.black)
-                                                .blendMode(.destinationOut)
-                                        }.compositingGroup()
-                                    }
-                                    .buttonStyle(.plain)
-                                    .frame(width: 24).fixedSize()
-                                    .padding(.leading, 1)
-                                } else {
-                                    Image(systemName: "mic.fill")
-                                        .font(.system(size: 13, weight: .bold))
-                                        .foregroundColor(recordMic ? .primary : .secondary)
-                                        .frame(width: 24)
-                                        .padding(.leading, 1)
-                                }
-                                Picker("", selection: $micDevice) {
-                                    Text("Default".local).tag("default")
-                                    ForEach(micList, id: \.uniqueID) { device in
-                                        Text(SCContext.microphoneDisplayName(for: device, devices: micList))
-                                            .tag(device.uniqueID)
-                                    }
-                                }.frame(width: 90)
-                                    .background(
-                                        ZStack {
-                                            Color.primary
-                                                .opacity(0.1)
-                                                .cornerRadius(4)
-                                                .padding(.vertical, -1)
-                                                .padding(.horizontal, 3)
-                                                .padding(.trailing, -16)
-                                            Image(systemName: "chevron.up.chevron.down")
-                                                .offset(x: 50)
-                                        }
-                                    )
-                                    .disabled(!recordMic)
-                                    .padding(.leading, -10)
-                                    .frame(width: 99)
-                                    .onAppear{
-                                        micDevice = SCContext.migrateMicrophoneSelectionIfNeeded(devices: micList)
-                                    }
-                            }.padding(.leading, -5)
-                        }
-                        .buttonStyle(.plain)
-                        .scaleEffect(0.69)
-                        .padding(.bottom, 4)
-                        .frame(width: 110)
-                        .background(.primary.opacity(0.00001))
-                    }.frame(height: 80)
-                    Divider().frame(height: 70)
-                    PreferencesButton()
-                    Divider().frame(height: 70)
-                    Button(action: {
-                        NSApp.terminate(self)
-                    }, label: {
-                        SelectorView(title: "Quit".local, symbol: "xmark.circle")
-                            .cornerRadius(8)
-                            .foregroundStyle(.darkMyRed)
-                    }).buttonStyle(.plain)
-                }
-                Divider()
+        VStack(spacing: 0) {
+            if fromStatusBar {
+                menuBarToolbar
+                    .frame(height: CompactRecorderLayout.menuBarHeight)
+            } else {
+                toolbar
+                    .frame(height: CompactRecorderLayout.collapsedHeight)
+            }
+
+            if fromStatusBar {
                 VStack(spacing: 0) {
-                    HStack(spacing: 8) {
-                        Toggle(isOn: cameraEnabledBinding) {
-                            Label("Camera".local, systemImage: "video.fill")
-                        }
-                        .toggleStyle(.checkbox)
-                        .frame(width: 145, alignment: .leading)
-                        .disabled(cameraList.isEmpty)
-
-                        Picker("Camera".local, selection: $cameraDevice) {
-                            if let preferredCamera {
-                                Text("\("Default".local) — \(preferredCamera.localizedName)")
-                                    .tag("default")
-                            }
-                            ForEach(cameraList.filter { $0.uniqueID != preferredCamera?.uniqueID }, id: \.uniqueID) { camera in
-                                Text(camera.localizedName).tag(camera.uniqueID)
-                            }
-                        }
-                        .labelsHidden()
-                        .disabled(cameraList.isEmpty)
-                        .frame(maxWidth: .infinity)
-                        .controlSize(.small)
-                        .onChange(of: cameraDevice) { switchCameraIfRunning() }
-                    }
-                    .padding(.vertical, 6)
-
                     Divider()
-                    HStack(spacing: 8) {
-                        Toggle(isOn: $recordMic) {
-                            Label("Microphone".local, systemImage: "mic.fill")
+                    CompactSettingsView(compact: true) { isExpanded in
+                        var transaction = Transaction()
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) {
+                            menuBarHotkeysExpanded = isExpanded
                         }
-                        .toggleStyle(.checkbox)
-                        .frame(width: 145, alignment: .leading)
-                        .disabled(micList.isEmpty)
+                    }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .frame(
+                            height: menuBarSettingsHeight,
+                            alignment: .top
+                        )
+                }
+                .frame(height: inlineSettingsVisible ? inlineSettingsHeight : 0, alignment: .top)
+                .clipped()
+                .opacity(inlineSettingsVisible ? 1 : 0)
+                .allowsHitTesting(inlineSettingsVisible)
+            }
+        }
+        .frame(
+            width: contentWidth,
+            height: contentHeight,
+            alignment: .top
+        )
+        .background {
+            ZStack {
+                if !fromStatusBar {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                }
 
-                        Picker("Microphone".local, selection: $micDevice) {
-                            Text("Default".local).tag("default")
-                            ForEach(micList, id: \.uniqueID) { microphone in
-                                Text(SCContext.microphoneDisplayName(for: microphone, devices: micList))
-                                    .tag(microphone.uniqueID)
-                            }
+                if fromStatusBar {
+                    CompactHostWindowReader { window in
+                        panelWindow = window
+                    }
+                } else {
+                    WindowAccessor(
+                        onWindowOpen: { window in
+                            panelWindow = window
+                        },
+                        onWindowClose: {
+                            settingsPanel.hide(ifHostedBy: panelWindow)
                         }
-                        .labelsHidden()
-                        .disabled(micList.isEmpty)
-                        .frame(maxWidth: .infinity)
-                        .controlSize(.small)
-                    }
-                    .padding(.vertical, 6)
-
-                    Divider()
-                    Toggle(isOn: $showMouse) {
-                        Label("Record Cursor".local, systemImage: "cursorarrow")
-                    }
-                    .toggleStyle(.checkbox)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 7)
+                    )
                 }
-                .padding(.horizontal, 6)
-                .onAppear {
-                    refreshDevices()
-                    refreshCameraState()
-                }
-                .onReceive(updateTimer) { _ in refreshCameraState() }
-            }.padding(10)
+            }
+        }
+        .onAppear {
+            refreshCameraState()
+            if !fromStatusBar {
+                DispatchQueue.main.async { refreshDevices() }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .quickRecorderPanelDidOpen)) { _ in
+            if fromStatusBar && !hasLoadedDevices { refreshDevices() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .quickRecorderPanelDidClose)) { _ in
+            guard fromStatusBar else { return }
+            inlineSettingsVisible = false
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasConnectedNotification)) { _ in
+            DispatchQueue.main.async { refreshDevices() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasDisconnectedNotification)) { _ in
+            DispatchQueue.main.async { refreshDevices() }
+        }
+        .onReceive(updateTimer) { _ in
+            refreshCameraState()
+        }
+        .onChange(of: recordMic) { _, isEnabled in
+            if isEnabled {
+                Task { await SCContext.performMicCheck() }
+            }
         }
     }
 
-    private var cameraEnabledBinding: Binding<Bool> {
-        Binding(
-            get: { cameraIsRunning },
-            set: { enabled in
-                guard enabled != cameraIsRunning else { return }
-                toggleCamera()
+    private var toolbar: some View {
+        HStack(spacing: 8) {
+            sourceControls
+
+            Divider()
+                .frame(height: 64)
+                .padding(.horizontal, 2)
+
+            cameraControl
+            microphoneControl
+            cursorControl
+            settingsControl
+            closeControl
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+    }
+
+    private var menuBarToolbar: some View {
+        VStack(spacing: 8) {
+            sourceControls
+
+            Divider()
+
+            HStack(spacing: 4) {
+                cameraControl
+                microphoneControl
+                cursorControl
+                settingsControl
+                closeControl
             }
+        }
+        .padding(10)
+    }
+
+    private var sourceControls: some View {
+        HStack(spacing: 4) {
+            CompactSourceButton(title: "System Audio", symbol: "waveform", action: startSystemAudio)
+            CompactSourceButton(title: "Screen", symbol: "display", action: selectScreen)
+            CompactSourceButton(title: "Screen Area", symbol: "viewfinder", action: selectArea)
+            CompactSourceButton(title: "Window", symbol: "macwindow", action: selectWindow)
+        }
+    }
+
+    private var cameraControl: some View {
+        DeviceStateButton(
+            title: "Camera",
+            symbol: cameraIsRunning ? "video.fill" : "video.slash.fill",
+            isEnabled: cameraIsRunning,
+            isAvailable: !cameraList.isEmpty,
+            action: toggleCamera
+        ) {
+            Picker("Camera".local, selection: $cameraDevice) {
+                if let preferredCamera {
+                    Text(preferredCamera.localizedName).tag("default")
+                }
+                ForEach(cameraList.filter { $0.uniqueID != preferredCamera?.uniqueID }, id: \.uniqueID) { camera in
+                    Text(camera.localizedName).tag(camera.uniqueID)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .disabled(cameraList.isEmpty)
+            .opacity(cameraIsRunning ? 1 : 0.55)
+            .onChange(of: cameraDevice) { switchCameraIfRunning() }
+        }
+    }
+
+    private var microphoneControl: some View {
+        DeviceStateButton(
+            title: "Microphone",
+            symbol: recordMic ? "mic.fill" : "mic.slash.fill",
+            isEnabled: recordMic,
+            isAvailable: !micList.isEmpty,
+            action: { recordMic.toggle() }
+        ) {
+            Picker("Microphone".local, selection: $micDevice) {
+                Text(preferredMicrophoneLabel).tag("default")
+                ForEach(micList, id: \.uniqueID) { microphone in
+                    Text(SCContext.microphoneDisplayName(for: microphone, devices: micList))
+                        .tag(microphone.uniqueID)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .disabled(micList.isEmpty)
+            .opacity(recordMic ? 1 : 0.55)
+        }
+    }
+
+    private var cursorControl: some View {
+        CompactIconButton(
+            symbol: "cursorarrow",
+            label: "Cursor",
+            isActive: showMouse,
+            action: { showMouse.toggle() }
         )
+    }
+
+    private var settingsControl: some View {
+        CompactIconButton(
+            symbol: "gearshape",
+            label: "Settings",
+            isActive: fromStatusBar
+                ? inlineSettingsVisible
+                : settingsPanel.isVisible(on: panelWindow),
+            action: toggleSettings
+        )
+    }
+
+    private var closeControl: some View {
+        CompactIconButton(
+            symbol: "xmark",
+            label: "Close",
+            tint: .red,
+            action: closeCurrentPanel
+        )
+    }
+
+    private var preferredCamera: AVCaptureDevice? {
+        cameraList.first(where: { $0.deviceType == .builtInWideAngleCamera }) ?? cameraList.first
+    }
+
+    private var selectedCamera: AVCaptureDevice? {
+        if cameraDevice == "default" { return preferredCamera }
+        return cameraList.first(where: { $0.uniqueID == cameraDevice }) ?? preferredCamera
+    }
+
+    private var preferredMicrophoneLabel: String {
+        defaultMicrophoneName ?? "Microphone".local
+    }
+
+    private var inlineSettingsHeight: CGFloat {
+        menuBarSettingsHeight + 1
+    }
+
+    private var menuBarSettingsHeight: CGFloat {
+        menuBarHotkeysExpanded
+            ? CompactRecorderLayout.menuBarSettingsExpandedHeight
+            : CompactRecorderLayout.menuBarSettingsCollapsedHeight
+    }
+
+    private var contentHeight: CGFloat {
+        (fromStatusBar ? CompactRecorderLayout.menuBarHeight : CompactRecorderLayout.collapsedHeight)
+            + (fromStatusBar && inlineSettingsVisible ? inlineSettingsHeight : 0)
+    }
+
+    private var contentWidth: CGFloat {
+        fromStatusBar ? CompactRecorderLayout.menuBarWidth : CompactRecorderLayout.width
+    }
+
+    private func startSystemAudio() {
+        guard let display = SCContext.getSCDisplayWithMouse() else { return }
+        dismissRecorderPanel()
+        appDelegate.createCountdownPanel(screen: display) {
+            AppDelegate.shared.prepRecord(
+                type: "audio",
+                screens: SCContext.getSCDisplayWithMouse(),
+                windows: nil
+            )
+        }
+    }
+
+    private func selectScreen() {
+        dismissRecorderPanel()
+        appDelegate.createNewWindow(view: ScreenSelector(), title: "Screen Selector".local)
+    }
+
+    private func selectArea() {
+        dismissRecorderPanel()
+        SCContext.updateAvailableContent {
+            DispatchQueue.main.async {
+                appDelegate.showAreaSelector(size: NSSize(width: 600, height: 450))
+                var currentDisplay = SCContext.getSCDisplayWithMouse()
+                mouseMonitor = NSEvent.addGlobalMonitorForEvents(
+                    matching: [.mouseMoved, .rightMouseDown, .leftMouseDown, .otherMouseDown]
+                ) { _ in
+                    let display = SCContext.getSCDisplayWithMouse()
+                    if display != currentDisplay {
+                        currentDisplay = display
+                        closeAllWindow()
+                        appDelegate.showAreaSelector(size: NSSize(width: 600, height: 450))
+                    }
+                }
+            }
+        }
+    }
+
+    private func selectWindow() {
+        dismissRecorderPanel()
+        appDelegate.createNewWindow(view: WinSelector(), title: "Window Selector".local)
+    }
+
+    private func dismissRecorderPanel() {
+        inlineSettingsVisible = false
+        settingsPanel.hide()
+        closeStatusBarPopover()
+        closeMainWindow()
+    }
+
+    private func closeCurrentPanel() {
+        inlineSettingsVisible = false
+        settingsPanel.hide()
+        if fromStatusBar {
+            closeStatusBarPopover()
+        } else {
+            panelWindow?.close()
+        }
+    }
+
+    private func toggleSettings() {
+        if fromStatusBar {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                inlineSettingsVisible.toggle()
+            }
+            return
+        }
+
+        guard let panelWindow else { return }
+        settingsPanel.toggle(relativeTo: panelWindow)
     }
 
     private func toggleCamera() {
@@ -267,7 +367,6 @@ struct ContentViewNew: View {
         }
 
         guard let camera = selectedCamera else { return }
-
         SCContext.recordCam = camera.localizedName
         appDelegate.recordingCamera(with: camera)
         refreshCameraState()
@@ -283,18 +382,11 @@ struct ContentViewNew: View {
         refreshCameraState()
     }
 
-    private var preferredCamera: AVCaptureDevice? {
-        cameraList.first(where: { $0.deviceType == .builtInWideAngleCamera }) ?? cameraList.first
-    }
-
-    private var selectedCamera: AVCaptureDevice? {
-        if cameraDevice == "default" { return preferredCamera }
-        return cameraList.first(where: { $0.uniqueID == cameraDevice }) ?? preferredCamera
-    }
-
     private func refreshDevices() {
         cameraList = SCContext.getCameras()
         micList = SCContext.getMicrophone()
+        defaultMicrophoneName = AVCaptureDevice.default(for: .audio)?.localizedName
+        hasLoadedDevices = true
         if cameraDevice != "default" && !cameraList.contains(where: { $0.uniqueID == cameraDevice }) {
             cameraDevice = "default"
         }
@@ -307,5 +399,316 @@ struct ContentViewNew: View {
         if cameraIsRunning && !appDelegate.isPresenterON && !camWindow.isVisible && camWindow.contentView != nil {
             camWindow.orderFrontRegardless()
         }
+    }
+
+}
+
+final class CompactSettingsPanelCoordinator: NSObject, ObservableObject {
+    static let shared = CompactSettingsPanelCoordinator()
+
+    @Published private(set) var isVisible = false
+
+    private weak var hostWindow: NSWindow?
+    private var hostObservers: [NSObjectProtocol] = []
+    private var hotkeysExpanded = false
+    private var panelHeight: CGFloat {
+        hotkeysExpanded
+            ? CompactRecorderLayout.settingsPanelExpandedHeight
+            : CompactRecorderLayout.settingsPanelCollapsedHeight
+    }
+    private lazy var panel: CompactSettingsPanel = {
+        let panel = CompactSettingsPanel(
+            contentRect: NSRect(
+                x: 0,
+                y: 0,
+                width: CompactRecorderLayout.width,
+                height: panelHeight
+            ),
+            styleMask: [.borderless, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        panel.contentView = NSHostingView(
+            rootView: CompactSettingsPanelContent { [weak self] isExpanded in
+                self?.setHotkeysExpanded(isExpanded)
+            }
+        )
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.isReleasedWhenClosed = false
+        panel.hidesOnDeactivate = false
+        panel.animationBehavior = .none
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        return panel
+    }()
+
+    func prepare() {
+        _ = panel
+        panel.contentView?.layoutSubtreeIfNeeded()
+    }
+
+    func toggle(relativeTo host: NSWindow) {
+        if isVisible(on: host) {
+            hide()
+        } else {
+            show(relativeTo: host)
+        }
+    }
+
+    func isVisible(on host: NSWindow?) -> Bool {
+        guard let host else { return false }
+        return isVisible && hostWindow === host
+    }
+
+    func show(relativeTo host: NSWindow) {
+        if hostWindow !== host {
+            detachFromHost()
+            hostWindow = host
+            observeHost(host)
+        }
+
+        if panel.parent !== host {
+            panel.parent?.removeChildWindow(panel)
+            host.addChildWindow(panel, ordered: .above)
+        }
+
+        positionPanel()
+        panel.orderFront(nil)
+        isVisible = true
+    }
+
+    func hide(ifHostedBy host: NSWindow?) {
+        guard hostWindow === host else { return }
+        hide()
+    }
+
+    func hide() {
+        guard isVisible || panel.isVisible || hostWindow != nil else { return }
+        panel.orderOut(nil)
+        detachFromHost()
+        isVisible = false
+    }
+
+    private func positionPanel() {
+        guard let hostWindow else { return }
+
+        var origin = NSPoint(
+            x: hostWindow.frame.midX - CompactRecorderLayout.width / 2,
+            y: hostWindow.frame.minY
+                - CompactRecorderLayout.settingsPanelGap
+                - panelHeight
+        )
+
+        if let visibleFrame = hostWindow.screen?.visibleFrame {
+            origin.x = min(
+                max(origin.x, visibleFrame.minX),
+                visibleFrame.maxX - CompactRecorderLayout.width
+            )
+            if origin.y < visibleFrame.minY {
+                origin.y = hostWindow.frame.maxY + CompactRecorderLayout.settingsPanelGap
+            }
+        }
+
+        panel.setFrame(
+            NSRect(
+                origin: origin,
+                size: NSSize(
+                    width: CompactRecorderLayout.width,
+                    height: panelHeight
+                )
+            ),
+            display: true
+        )
+    }
+
+    private func observeHost(_ host: NSWindow) {
+        let center = NotificationCenter.default
+        hostObservers = [
+            center.addObserver(forName: NSWindow.didMoveNotification, object: host, queue: .main) { [weak self] _ in
+                self?.positionPanel()
+            },
+            center.addObserver(forName: NSWindow.didResizeNotification, object: host, queue: .main) { [weak self] _ in
+                self?.positionPanel()
+            },
+            center.addObserver(forName: NSWindow.willCloseNotification, object: host, queue: .main) { [weak self] _ in
+                self?.hide()
+            }
+        ]
+    }
+
+    private func setHotkeysExpanded(_ isExpanded: Bool) {
+        guard hotkeysExpanded != isExpanded else { return }
+        hotkeysExpanded = isExpanded
+        positionPanel()
+    }
+
+    private func detachFromHost() {
+        if let hostWindow, panel.parent === hostWindow {
+            hostWindow.removeChildWindow(panel)
+        }
+        hostWindow = nil
+        let center = NotificationCenter.default
+        hostObservers.forEach(center.removeObserver)
+        hostObservers.removeAll()
+    }
+}
+
+private final class CompactSettingsPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+}
+
+private struct CompactSettingsPanelContent: View {
+    @State private var hotkeysExpanded = false
+    let onHotkeysExpandedChange: (Bool) -> Void
+
+    var body: some View {
+        CompactSettingsView { isExpanded in
+            hotkeysExpanded = isExpanded
+            onHotkeysExpandedChange(isExpanded)
+        }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(
+                width: CompactRecorderLayout.width,
+                height: hotkeysExpanded
+                    ? CompactRecorderLayout.settingsPanelExpandedHeight
+                    : CompactRecorderLayout.settingsPanelCollapsedHeight,
+                alignment: .top
+            )
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(.ultraThinMaterial)
+            )
+    }
+}
+
+private struct CompactHostWindowReader: NSViewRepresentable {
+    let onResolve: (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            onResolve(view.window)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            onResolve(nsView.window)
+        }
+    }
+}
+
+private struct CompactSourceButton: View {
+    let title: String
+    let symbol: String
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: symbol)
+                    .font(.system(size: 23, weight: .medium))
+                    .frame(height: 27)
+                Text(title.local)
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+            }
+            .frame(width: 96, height: 64)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(Color.primary.opacity(isHovering ? 0.12 : 0.04))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .help(title.local)
+    }
+}
+
+private struct DeviceStateButton<Accessory: View>: View {
+    let title: String
+    let symbol: String
+    let isEnabled: Bool
+    let isAvailable: Bool
+    let action: () -> Void
+    let accessory: Accessory
+
+    init(
+        title: String,
+        symbol: String,
+        isEnabled: Bool,
+        isAvailable: Bool = true,
+        action: @escaping () -> Void,
+        @ViewBuilder accessory: @escaping () -> Accessory
+    ) {
+        self.title = title
+        self.symbol = symbol
+        self.isEnabled = isEnabled
+        self.isAvailable = isAvailable
+        self.action = action
+        self.accessory = accessory()
+    }
+
+    var body: some View {
+        VStack(spacing: 3) {
+            Button(action: action) {
+                Image(systemName: symbol)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(isEnabled ? Color.white : Color.primary)
+                    .frame(width: 40, height: 38)
+                    .background(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(isEnabled ? Color.accentColor : Color.primary.opacity(0.08))
+                    )
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!isAvailable)
+
+            accessory
+                .controlSize(.small)
+                .frame(width: 124, height: 22)
+        }
+        .frame(width: 124, height: 64)
+        .opacity(isAvailable ? 1 : 0.45)
+        .help(title.local)
+        .accessibilityLabel(title.local)
+    }
+}
+
+private struct CompactIconButton: View {
+    let symbol: String
+    let label: String
+    var isActive = false
+    var tint: Color = .primary
+    let action: () -> Void
+
+    var body: some View {
+        VStack(spacing: 3) {
+            Button(action: action) {
+                Image(systemName: symbol)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(isActive ? Color.white : tint)
+                    .frame(width: 40, height: 38)
+                    .background(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(isActive ? Color.accentColor : Color.primary.opacity(0.04))
+                    )
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Color.clear
+                .frame(height: 22)
+        }
+        .frame(width: 44, height: 64)
+        .help(label.local)
+        .accessibilityLabel(label.local)
     }
 }

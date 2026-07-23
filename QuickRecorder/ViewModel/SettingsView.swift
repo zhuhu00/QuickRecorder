@@ -2,329 +2,312 @@
 //  SettingsView.swift
 //  QuickRecorder
 //
-//  Created by apple on 2024/4/19.
-//
 
+import AppKit
 import SwiftUI
 import ServiceManagement
 import KeyboardShortcuts
-import MatrixColorSelector
 
-struct PreferencesButton: View {
-    var body: some View {
-        ModernPreferencesButton()
-    }
-}
+struct CompactSettingsView: View {
+    var compact = false
+    var onHotkeysExpandedChange: ((Bool) -> Void)?
 
-private struct ModernPreferencesButton: View {
-    @Environment(\.openSettings) private var openSettings
-
-    var body: some View {
-        Button(action: {
-            closeMainWindow()
-            NSApp.activate(ignoringOtherApps: true)
-            openSettings()
-        }, label: {
-            SelectorView(title: "Preferences".local, symbol: "gearshape").cornerRadius(8)
-        })
-        .buttonStyle(.plain)
-    }
-}
-
-struct SettingsView: View {
-    @State private var selectedItem: String? = "General"
-    
-    var body: some View {
-        NavigationSplitView {
-            List(selection: $selectedItem) {
-                Label("General", image: "gear").tag("General")
-                Label("Recorder", image: "record").tag("Recorder")
-                Label("Output", image: "film").tag("Output")
-                Label("Hotkey", image: "hotkey").tag("Hotkey")
-                Label("Blocklist", image: "blacklist").tag("Blocklist")
-            }
-            .listStyle(.sidebar)
-            .padding(.top, 9)
-        } detail: {
-            switch selectedItem {
-            case "Recorder": RecorderView()
-            case "Output": OutputView()
-            case "Hotkey": HotkeyView()
-            case "Blocklist": BlocklistView()
-            default: GeneralView()
-            }
-        }
-        .frame(width: 600, height: 512)
-    }
-}
-
-struct GeneralView: View {
-    @AppStorage("countdown") private var countdown: Int = 0
-    @AppStorage("poSafeDelay") private var poSafeDelay: Int = 1
+    @AppStorage("audioFormat") private var audioFormat: AudioFormat = .aac
+    @AppStorage("audioQuality") private var audioQuality: AudioQuality = .high
+    @AppStorage("recordingIndicatorStyle") private var recordingIndicatorStyle: RecordingIndicatorStyle = .defaultValue
+    @AppStorage("showPreview") private var showPreview: Bool = true
+    @AppStorage("saveDirectory") private var saveDirectory: String = NSHomeDirectory() + "/Desktop"
     @AppStorage("showOnDock") private var showOnDock: Bool = true
     @AppStorage("showMenubar") private var showMenubar: Bool = true
-    
+
     @State private var launchAtLogin = false
+    @State private var hotkeysExpanded = false
 
     var body: some View {
-        SForm {
-            SGroupBox(label: "Startup") {
-                SToggle("Launch at Login", isOn: $launchAtLogin)
-                    .onChange(of: launchAtLogin) { _, newValue in
-                        do {
-                            if newValue {
-                                try SMAppService.mainApp.register()
-                            } else {
-                                try SMAppService.mainApp.unregister()
-                            }
-                        } catch {
-                            print("Failed to \(newValue ? "enable" : "disable") launch at login: \(error.localizedDescription)")
-                        }
-                    }
-                SDivider()
-                SToggle("Show QuickRecorder on Dock", isOn: $showOnDock)
-                    //.disabled(!showMenubar)
-                SDivider()
-                SToggle("Show QuickRecorder on Menu Bar", isOn: $showMenubar)
-                    //.disabled(!showOnDock)
-            }
-            VStack(spacing: 8) {
-                if let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
-                    Text("QuickRecorder v\(appVersion)")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
+        VStack(spacing: 10) {
+            if compact {
+                VStack(spacing: 10) {
+                    outputSettings
+                    recordingSettings
+                    startupSettings
+                }
+            } else {
+                HStack(alignment: .top, spacing: 10) {
+                    outputSettings
+                    recordingSettings
+                    startupSettings
                 }
             }
+
         }
-        .onAppear { launchAtLogin = (SMAppService.mainApp.status == .enabled) }
-        .onChange(of: showMenubar) { updateStatusBar() }
-        .onChange(of: showOnDock) { _, newValue in
-            if !newValue {
-                NSApp.setActivationPolicy(.accessory)
-                NSApp.activate(ignoringOtherApps: true)
-            } else {
-                NSApp.setActivationPolicy(.regular)
+        .onAppear {
+            launchAtLogin = SMAppService.mainApp.status == .enabled
+        }
+    }
+
+    private var outputSettings: some View {
+        CompactSettingsCard(title: "Output") {
+            CompactSettingRow(label: "Audio Quality") {
+                Picker("Audio Quality".local, selection: $audioQuality) {
+                    Text("Standard — 192Kbps".local).tag(AudioQuality.good)
+                    Text("High — 256Kbps".local).tag(AudioQuality.high)
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(width: 160)
+            }
+
+            CompactSettingRow(label: "Audio Format") {
+                Picker("Audio Format".local, selection: $audioFormat) {
+                    Text("AAC").tag(AudioFormat.aac)
+                    Text("MP3").tag(AudioFormat.mp3)
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .frame(width: 150)
+            }
+
+            CompactSettingRow(label: "Output Folder") {
+                Button(action: updateOutputDirectory) {
+                    HStack(spacing: 4) {
+                        Text(saveDirectory.lastPathComponent)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Image(systemName: "chevron.right")
+                    }
+                }
+                .buttonStyle(.borderless)
+                .frame(width: 160, alignment: .trailing)
             }
         }
     }
-}
 
-struct RecorderView: View {
-    @AppStorage("countdown")        private var countdown: Int = 0
-    @AppStorage("poSafeDelay")      private var poSafeDelay: Int = 1
-    @AppStorage("highlightMouse")   private var highlightMouse: Bool = false
-    @AppStorage("includeMenuBar")   private var includeMenuBar: Bool = true
-    @AppStorage("hideDesktopFiles") private var hideDesktopFiles: Bool = false
-    @AppStorage("trimAfterRecord")  private var trimAfterRecord: Bool = false
-    @AppStorage("recordingIndicatorStyle") private var recordingIndicatorStyle: RecordingIndicatorStyle = .defaultValue
-    @AppStorage("hideSelf")         private var hideSelf: Bool = true
-    @AppStorage("preventSleep")     private var preventSleep: Bool = true
-    @AppStorage("showPreview")      private var showPreview: Bool = true
-    @AppStorage("hideCCenter")      private var hideCCenter: Bool = false
-    
-    @State private var userColor: Color = Color.black
-
-    var body: some View {
-        SForm(spacing: 10) {
-            SGroupBox(label: "Recorder") {
-                SSteper("Delay Before Recording", value: $countdown, min: 0, max: 99)
-                SDivider()
-                SSteper("Presenter Overlay Delay", value: $poSafeDelay, min: 0, max: 99, tips: "If enabling Presenter Overlay causes recording failure, please increase this value.")
-                SDivider()
-                SItem(label: "Custom Background Color") {
-                    MatrixColorSelector("", selection: $userColor)
-                        .onChange(of: userColor) { _, userColor in
-                            ud.setColor(userColor, forKey: "userColor")
-                        }
-                }
-            }
-            SGroupBox {
-                SPicker("Recording Indicator", selection: $recordingIndicatorStyle) {
+    private var recordingSettings: some View {
+        CompactSettingsCard(title: "Recording") {
+            CompactSettingRow(label: "Recording Indicator") {
+                Picker("Recording Indicator".local, selection: $recordingIndicatorStyle) {
                     Text("Full Controls".local).tag(RecordingIndicatorStyle.full)
                     Text("Discreet Stop Icon".local).tag(RecordingIndicatorStyle.discreet)
                 }
-                SDivider()
-                SToggle("Prevent Mac from sleeping while recording", isOn: $preventSleep)
-                SDivider()
-                SToggle("Show floating preview after recording", isOn: $showPreview)
-                SDivider()
-                SToggle("Open video trimmer after recording", isOn: $trimAfterRecord)
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(width: 155)
             }
-            SGroupBox {
-                SToggle("Exclude QuickRecorder itself", isOn: $hideSelf)
-                SDivider()
-                SToggle("Include Menu Bar in Recording", isOn: $includeMenuBar)
-                SDivider()
-                SToggle("Hide Control Center Icons", isOn: $hideCCenter, tips: "Hide the clock, Wi-Fi, bluetooth, volume and other system icons in the menu bar.")
-                SDivider()
-                SToggle("Highlight the Mouse Cursor", isOn: $highlightMouse, tips: "Not available for \"Single Window Capture\"")
-                SDivider()
-                SToggle("Exclude Files on Desktop", isOn: $hideDesktopFiles, tips: "If enabled, all files on the Desktop will be hidden from the video when recording.")
-            }
-        }.onAppear{ userColor = ud.color(forKey: "userColor") ?? Color.black }
-    }
-}
 
-struct OutputView: View {
-    @AppStorage("encoder")          private var encoder: Encoder = .defaultValue
-    @AppStorage("videoFormat")      private var videoFormat: VideoFormat = .mp4
-    @AppStorage("audioFormat")      private var audioFormat: AudioFormat = .aac
-    @AppStorage("audioQuality")     private var audioQuality: AudioQuality = .high
-    @AppStorage("pixelFormat")      private var pixelFormat: PixFormat = .delault
-    @AppStorage("background")       private var background: BackgroundType = .wallpaper
-    @AppStorage("remuxAudio")       private var remuxAudio: Bool = true
-    @AppStorage("enableAEC")        private var enableAEC: Bool = false
-    @AppStorage("AECLevel")         private var AECLevel: String = "mid"
-    @AppStorage("withAlpha")        private var withAlpha: Bool = false
-    @AppStorage("saveDirectory")    private var saveDirectory: String?
+            CompactSettingRow(label: "Show Preview") {
+                Toggle("Show Preview".local, isOn: $showPreview)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+            }
 
-    var body: some View {
-        SForm(spacing: 30) {
-            SGroupBox(label: "Audio") {
-                SPicker("Quality", selection: $audioQuality) {
-                    if audioFormat == .alac || audioFormat == .flac {
-                        Text("Lossless").tag(audioQuality)
-                    }
-                    Text("Normal - 128Kbps").tag(AudioQuality.normal)
-                    Text("Good - 192Kbps").tag(AudioQuality.good)
-                    Text("High - 256Kbps").tag(AudioQuality.high)
-                    Text("Extreme - 320Kbps").tag(AudioQuality.extreme)
-                }.disabled(audioFormat == .alac || audioFormat == .flac)
-                SDivider()
-                SPicker("Format", selection: $audioFormat) {
-                    Text("MP3").tag(AudioFormat.mp3)
-                    Text("AAC").tag(AudioFormat.aac)
-                    Text("ALAC (Lossless)").tag(AudioFormat.alac)
-                    Text("FLAC (Lossless)").tag(AudioFormat.flac)
-                    Text("Opus").tag(AudioFormat.opus)
+            Button(action: toggleHotkeys) {
+                HStack(spacing: 8) {
+                    Label("Keyboard Shortcuts".local, systemImage: "command")
+                        .font(.system(size: 12))
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .rotationEffect(.degrees(hotkeysExpanded ? 90 : 0))
                 }
-                SDivider()
-                SToggle("Record Microphone to Main Track", isOn: $remuxAudio)
-                SDivider()
-                SToggle("Enable Acoustic Echo Cancellation", isOn: $enableAEC)
-                SDivider()
-                SPicker("Audio Ducking Level", selection: $AECLevel) {
-                    Text("Min").tag("min")
-                    Text("Mid").tag("mid")
-                    Text("Max").tag("max")
-                }.disabled(!enableAEC)
+                .contentShape(Rectangle())
             }
-            SGroupBox(label: "Video") {
-                SPicker("Format", selection: $videoFormat) {
-                    Text("MOV").tag(VideoFormat.mov)
-                    Text("MP4").tag(VideoFormat.mp4)
-                }.disabled(withAlpha)
-                SDivider()
-                SPicker("Encoder", selection: $encoder) {
-                    Text("H.264").tag(Encoder.h264)
-                    Text("H.265").tag(Encoder.h265)
-                }.disabled(withAlpha)
-                SDivider()
-                SToggle("Recording with Alpha Channel", isOn: $withAlpha)
-            }
-            SGroupBox(label: "Save") {
-                SItem(label: "Output Folder") {
-                    Text(String(format: "Currently set to \"%@\"".local, saveDirectory!.lastPathComponent))
-                        .font(.footnote)
-                        .foregroundColor(Color.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    Button("Select...", action: { updateOutputDirectory() })
-                }
-            }
-        }.onChange(of: withAlpha) { _, alpha in
-            if alpha {
-                encoder = Encoder.h265; videoFormat = VideoFormat.mov
-            } else {
-                if background == .clear { background = .wallpaper }
+            .buttonStyle(.plain)
+            .frame(minHeight: 26)
+
+            if hotkeysExpanded {
+                Divider()
+                CoreHotkeySettingsView(compact: true)
             }
         }
     }
-    
-    func updateOutputDirectory() { // todo: re-sandbox
+
+    private var startupSettings: some View {
+        CompactSettingsCard(title: "Startup") {
+            CompactSettingRow(label: "Launch at Login") {
+                Toggle("Launch at Login".local, isOn: launchAtLoginBinding)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+            }
+
+            CompactSettingRow(label: "Show on Dock") {
+                Toggle("Show on Dock".local, isOn: showOnDockBinding)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .disabled(showOnDock && !showMenubar)
+            }
+
+            CompactSettingRow(label: "Show on Menu Bar") {
+                Toggle("Show on Menu Bar".local, isOn: showMenubarBinding)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .disabled(showMenubar && !showOnDock)
+            }
+        }
+    }
+
+    private var launchAtLoginBinding: Binding<Bool> {
+        Binding(
+            get: { launchAtLogin },
+            set: { newValue in
+                do {
+                    if newValue {
+                        try SMAppService.mainApp.register()
+                    } else {
+                        try SMAppService.mainApp.unregister()
+                    }
+                    launchAtLogin = newValue
+                } catch {
+                    launchAtLogin = SMAppService.mainApp.status == .enabled
+                    print("Failed to \(newValue ? "enable" : "disable") launch at login: \(error.localizedDescription)")
+                }
+            }
+        )
+    }
+
+    private var showOnDockBinding: Binding<Bool> {
+        Binding(
+            get: { showOnDock },
+            set: { newValue in
+                guard CompactRecorderPreferences.hasReachableAppEntry(
+                    showOnDock: newValue,
+                    showMenubar: showMenubar
+                ) else { return }
+                showOnDock = newValue
+                NSApp.setActivationPolicy(newValue ? .regular : .accessory)
+                if newValue { NSApp.activate(ignoringOtherApps: true) }
+            }
+        )
+    }
+
+    private var showMenubarBinding: Binding<Bool> {
+        Binding(
+            get: { showMenubar },
+            set: { newValue in
+                guard CompactRecorderPreferences.hasReachableAppEntry(
+                    showOnDock: showOnDock,
+                    showMenubar: newValue
+                ) else { return }
+                showMenubar = newValue
+                updateStatusBar()
+            }
+        )
+    }
+
+    private func updateOutputDirectory() {
         let openPanel = NSOpenPanel()
         openPanel.canChooseFiles = false
         openPanel.canChooseDirectories = true
-        openPanel.allowedContentTypes = []
-        openPanel.allowsOtherFileTypes = false
-        if openPanel.runModal() == NSApplication.ModalResponse.OK {
-            if let path = openPanel.urls.first?.path { saveDirectory = path }
+        openPanel.canCreateDirectories = true
+        openPanel.allowsMultipleSelection = false
+        openPanel.prompt = "Select".local
+        if openPanel.runModal() == .OK, let path = openPanel.url?.path {
+            saveDirectory = path
         }
+    }
+
+    private func toggleHotkeys() {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            hotkeysExpanded.toggle()
+        }
+        onHotkeysExpandedChange?(hotkeysExpanded)
     }
 }
 
-struct HotkeyView: View {
+private struct CompactSettingsCard<Content: View>: View {
+    let title: String
+    let content: Content
+
+    init(title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
     var body: some View {
-        SForm(spacing: 10) {
-            SGroupBox(label: "Hotkey") {
-                SItem(label: "Open Main Panel") { KeyboardShortcuts.Recorder("", name: .showPanel) }
-            }
-            SGroupBox {
-                SItem(label: "Stop Recording") { KeyboardShortcuts.Recorder("", name: .stop) }
-                SDivider()
-                SItem(label: "Pause / Resume") { KeyboardShortcuts.Recorder("", name: .pauseResume) }
-            }
-            SGroupBox {
-                SItem(label: "Record System Audio") { KeyboardShortcuts.Recorder("", name: .startWithAudio) }
-                SDivider()
-                SItem(label: "Record Current Screen") { KeyboardShortcuts.Recorder("", name: .startWithScreen) }
-                SDivider()
-                SItem(label: "Record Topmost Window") { KeyboardShortcuts.Recorder("", name: .startWithWindow) }
-                SDivider()
-                SItem(label: "Select Area to Record") { KeyboardShortcuts.Recorder("", name: .startWithArea) }
-            }
-            SGroupBox {
-                SItem(label: "Save Current Frame") { KeyboardShortcuts.Recorder("", name: .saveFrame) }
-                SDivider()
-                SItem(label: "Toggle Screen Magnifier") {KeyboardShortcuts.Recorder("", name: .screenMagnifier) }
-            }
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title.local)
+                .font(.system(size: 13, weight: .semibold))
+            content
         }
+        .padding(10)
+        .frame(maxWidth: .infinity, minHeight: 132, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(Color.primary.opacity(0.045))
+        )
     }
 }
 
-struct BlocklistView: View {
+private struct CompactSettingRow<Content: View>: View {
+    let label: String
+    let content: Content
+
+    init(label: String, @ViewBuilder content: () -> Content) {
+        self.label = label
+        self.content = content()
+    }
+
     var body: some View {
-        SForm(spacing: 0, noSpacer: true) {
-            SGroupBox(label: "Blocklist") {
-                    BundleSelector()
-                    Text("These apps will be excluded when recording \"Screen\" or \"Screen Area\"\nBut if the app is launched after the recording starts, it cannot be excluded.")
-                        .font(.footnote)
-                        .multilineTextAlignment(.center)
-                        .foregroundColor(Color.secondary)
+        HStack(spacing: 8) {
+            Text(label.local)
+                .font(.system(size: 12))
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            content
+        }
+        .frame(minHeight: 26)
+    }
+}
+
+private struct CoreHotkeySettingsView: View {
+    let compact: Bool
+
+    var body: some View {
+        if compact {
+            VStack(spacing: 7) {
+                CoreHotkeyRow(label: "Open Main Panel", name: .showPanel)
+                CoreHotkeyRow(label: "Record System Audio", name: .startWithAudio)
+                CoreHotkeyRow(label: "Record Current Screen", name: .startWithScreen)
+                CoreHotkeyRow(label: "Select Area to Record", name: .startWithArea)
+                CoreHotkeyRow(label: "Record Topmost Window", name: .startWithWindow)
+                CoreHotkeyRow(label: "Pause / Resume", name: .pauseResume)
+                CoreHotkeyRow(label: "Stop Recording", name: .stop)
+            }
+        } else {
+            HStack(alignment: .top, spacing: 28) {
+                VStack(spacing: 7) {
+                    CoreHotkeyRow(label: "Open Main Panel", name: .showPanel)
+                    CoreHotkeyRow(label: "Record System Audio", name: .startWithAudio)
+                    CoreHotkeyRow(label: "Record Current Screen", name: .startWithScreen)
+                    CoreHotkeyRow(label: "Select Area to Record", name: .startWithArea)
+                }
+                VStack(spacing: 7) {
+                    CoreHotkeyRow(label: "Record Topmost Window", name: .startWithWindow)
+                    CoreHotkeyRow(label: "Pause / Resume", name: .pauseResume)
+                    CoreHotkeyRow(label: "Stop Recording", name: .stop)
+                }
             }
         }
     }
 }
 
-extension UserDefaults {
-    func setColor(_ color: Color?, forKey key: String) {
-        guard let color = color else {
-            removeObject(forKey: key)
-            return
+private struct CoreHotkeyRow: View {
+    let label: String
+    let name: KeyboardShortcuts.Name
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(label.local)
+                .font(.system(size: 12))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            KeyboardShortcuts.Recorder("", name: name)
         }
-        
-        do {
-            let data = try NSKeyedArchiver.archivedData(withRootObject: NSColor(color), requiringSecureCoding: false)
-            set(data, forKey: key)
-        } catch {
-            print("Error archiving color:", error)
-        }
-    }
-    
-    func color(forKey key: String) -> Color? {
-        guard let data = data(forKey: key),
-              let nsColor = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSColor.self, from: data) else {
-            return nil
-        }
-        return Color(nsColor)
-    }
-    
-    func cgColor(forKey key: String) -> CGColor? {
-        guard let data = data(forKey: key),
-              let nsColor = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSColor.self, from: data) else {
-            return nil
-        }
-        return nsColor.cgColor
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -340,15 +323,12 @@ extension KeyboardShortcuts.Name {
     static let showPanel = Self("showPanel")
 }
 
-extension AppDelegate {
-    @available(macOS 13.0, *)
-    @objc func setLoginItem(_ sender: NSMenuItem) {
-        sender.state = sender.state == .on ? .off : .on
-        do {
-            if sender.state == .on { try SMAppService.mainApp.register() }
-            if sender.state == .off { try SMAppService.mainApp.unregister() }
-        }catch{
-            print("Failed to \(sender.state == .on ? "enable" : "disable") launch at login: \(error.localizedDescription)")
+extension UserDefaults {
+    func cgColor(forKey key: String) -> CGColor? {
+        guard let data = data(forKey: key),
+              let nsColor = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSColor.self, from: data) else {
+            return nil
         }
+        return nsColor.cgColor
     }
 }

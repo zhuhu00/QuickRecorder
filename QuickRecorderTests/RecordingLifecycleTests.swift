@@ -85,6 +85,67 @@ final class QuickRecorderConfigurationTests: XCTestCase {
         XCTAssertFalse(AppRuntime.detectsUnitTests(in: [:]))
         XCTAssertTrue(AppRuntime.isRunningUnitTests)
     }
+
+    func testCompactPreferencesApplyFixedRecordingDefaults() {
+        let suiteName = "QuickRecorderTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(AudioFormat.flac.rawValue, forKey: "audioFormat")
+        defaults.set(AudioQuality.extreme.rawValue, forKey: "audioQuality")
+        defaults.set(true, forKey: "includeMenuBar")
+        defaults.set(true, forKey: "enableAEC")
+        defaults.set(VideoFormat.mov.rawValue, forKey: "videoFormat")
+        defaults.set(Encoder.h264.rawValue, forKey: "encoder")
+        defaults.set(true, forKey: "withAlpha")
+
+        CompactRecorderPreferences.apply(to: defaults)
+
+        XCTAssertEqual(defaults.string(forKey: "audioFormat"), AudioFormat.aac.rawValue)
+        XCTAssertEqual(defaults.integer(forKey: "audioQuality"), AudioQuality.high.rawValue)
+        XCTAssertFalse(defaults.bool(forKey: "includeMenuBar"))
+        XCTAssertFalse(defaults.bool(forKey: "enableAEC"))
+        XCTAssertEqual(defaults.string(forKey: "videoFormat"), VideoFormat.mp4.rawValue)
+        XCTAssertEqual(defaults.string(forKey: "encoder"), Encoder.h265.rawValue)
+        XCTAssertFalse(defaults.bool(forKey: "withAlpha"))
+        XCTAssertTrue(defaults.bool(forKey: "remuxAudio"))
+        XCTAssertTrue(defaults.bool(forKey: "preventSleep"))
+        XCTAssertTrue(defaults.bool(forKey: "hideSelf"))
+    }
+
+    func testCompactPreferencesPreserveSupportedAudioChoices() {
+        let suiteName = "QuickRecorderTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(AudioFormat.mp3.rawValue, forKey: "audioFormat")
+        defaults.set(AudioQuality.good.rawValue, forKey: "audioQuality")
+        defaults.set(true, forKey: "showOnDock")
+        defaults.set(false, forKey: "showMenubar")
+
+        CompactRecorderPreferences.apply(to: defaults)
+
+        XCTAssertEqual(defaults.string(forKey: "audioFormat"), AudioFormat.mp3.rawValue)
+        XCTAssertEqual(defaults.integer(forKey: "audioQuality"), AudioQuality.good.rawValue)
+        XCTAssertTrue(defaults.bool(forKey: "showOnDock"))
+        XCTAssertFalse(defaults.bool(forKey: "showMenubar"))
+    }
+
+    func testCompactPreferencesAlwaysKeepOneReachableEntry() {
+        XCTAssertFalse(CompactRecorderPreferences.hasReachableAppEntry(showOnDock: false, showMenubar: false))
+        XCTAssertTrue(CompactRecorderPreferences.hasReachableAppEntry(showOnDock: true, showMenubar: false))
+        XCTAssertTrue(CompactRecorderPreferences.hasReachableAppEntry(showOnDock: false, showMenubar: true))
+
+        let suiteName = "QuickRecorderTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(false, forKey: "showOnDock")
+        defaults.set(false, forKey: "showMenubar")
+        CompactRecorderPreferences.apply(to: defaults)
+
+        XCTAssertTrue(defaults.bool(forKey: "showMenubar"))
+    }
 }
 
 final class WriterSessionGateTests: XCTestCase {
