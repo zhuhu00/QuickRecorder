@@ -247,9 +247,9 @@ struct ContentViewNew: View {
     private var closeControl: some View {
         CompactIconButton(
             symbol: "xmark",
-            label: "Close",
+            label: fromStatusBar ? "Quit" : "Close",
             tint: .red,
-            action: closeCurrentPanel
+            action: closeOrQuit
         )
     }
 
@@ -334,14 +334,15 @@ struct ContentViewNew: View {
         closeMainWindow()
     }
 
-    private func closeCurrentPanel() {
+    private func closeOrQuit() {
+        if fromStatusBar {
+            NSApp.terminate(nil)
+            return
+        }
+
         inlineSettingsVisible = false
         settingsPanel.hide()
-        if fromStatusBar {
-            closeStatusBarPopover()
-        } else {
-            panelWindow?.close()
-        }
+        panelWindow?.close()
     }
 
     private func toggleSettings() {
