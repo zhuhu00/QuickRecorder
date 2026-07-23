@@ -13,6 +13,13 @@ struct RecordingLifecycle {
         case failed
     }
 
+    enum StopRequest: Equatable {
+        case cancelStart
+        case start
+        case join
+        case inactive
+    }
+
     private(set) var phase: Phase = .idle
 
     mutating func beginStart() -> Bool {
@@ -39,9 +46,22 @@ struct RecordingLifecycle {
     }
 
     mutating func beginStop() -> Bool {
-        guard phase == .starting || phase == .recording || phase == .paused else { return false }
-        phase = .stopping
-        return true
+        requestStop() == .start
+    }
+
+    mutating func requestStop() -> StopRequest {
+        switch phase {
+        case .starting:
+            phase = .stopping
+            return .cancelStart
+        case .recording, .paused:
+            phase = .stopping
+            return .start
+        case .stopping:
+            return .join
+        case .idle, .failed:
+            return .inactive
+        }
     }
 
     mutating func fail() {

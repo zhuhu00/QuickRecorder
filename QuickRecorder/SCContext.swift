@@ -7,6 +7,7 @@
 
 import AVFAudio
 import AVFoundation
+import CoreGraphics
 import Foundation
 import ScreenCaptureKit
 import UserNotifications
@@ -129,7 +130,20 @@ class SCContext {
     static var isStartingCapture: Bool { lifecyclePhase == .starting }
     static var isStopping: Bool { lifecyclePhase == .stopping }
     private static var stopCompletions = [() -> Void]()
-    static var availableContent: SCShareableContent?
+    private static let availableContentLock = NSLock()
+    private static var availableContentStorage: SCShareableContent?
+    static var availableContent: SCShareableContent? {
+        get {
+            availableContentLock.lock()
+            defer { availableContentLock.unlock() }
+            return availableContentStorage
+        }
+        set {
+            availableContentLock.lock()
+            availableContentStorage = newValue
+            availableContentLock.unlock()
+        }
+    }
     static let excludedApps = ["", "com.apple.dock", "com.apple.screencaptureui", "com.apple.controlcenter", "com.apple.notificationcenterui", "com.apple.systemuiserver", "com.apple.WindowManager", "dev.mnpn.Azayaka", "com.gaosun.eul", "com.pointum.hazeover", "net.matthewpalmer.Vanilla", "com.dwarvesv.minimalbar", "com.bjango.istatmenus.status"]
 
     private static var lifecyclePhase: RecordingLifecycle.Phase {
@@ -144,10 +158,12 @@ class SCContext {
         return recordingLifecycle.beginStart()
     }
 
-    static func completeRecordingStart() {
+    @discardableResult
+    static func completeRecordingStart() -> Bool {
         lifecycleLock.lock()
-        _ = recordingLifecycle.completeStart()
+        let completed = recordingLifecycle.completeStart()
         lifecycleLock.unlock()
+        return completed
     }
 
     static func failRecordingStart() {
@@ -162,77 +178,75 @@ class SCContext {
         lifecycleLock.unlock()
     }
 
-    private static func beginRecordingStop() -> Bool {
+    private static func registerRecordingStop(
+        completion: (() -> Void)?
+    ) -> RecordingLifecycle.StopRequest {
         lifecycleLock.lock()
         defer { lifecycleLock.unlock() }
-        return recordingLifecycle.beginStop()
+        let request = recordingLifecycle.requestStop()
+        if request != .inactive, let completion {
+            stopCompletions.append(completion)
+        }
+        return request
     }
 
-    private static func finishRecordingLifecycle() {
+    private static func finishRecordingLifecycle() -> [() -> Void] {
         lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
         recordingLifecycle.finish()
-        lifecycleLock.unlock()
+        let completions = stopCompletions
+        stopCompletions.removeAll()
+        return completions
     }
-    
-    static func updateAvailableContentSync() -> SCShareableContent? {
-        let semaphore = DispatchSemaphore(value: 0)
-        var result: SCShareableContent? = nil
 
-        updateAvailableContent { content in
-            result = content
-            semaphore.signal()
-        }
-
-        semaphore.wait()
-        return result
-    }
-    
-    private static func updateAvailableContent(completion: @escaping (SCShareableContent?) -> Void) {
-        SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) { [self] content, error in
-            if let error = error {
-                switch error {
-                case SCStreamError.userDeclined:
-                    DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
-                        self.updateAvailableContent() {_ in}
-                    }
-                default:
-                    print("Error: failed to fetch available content: ".local, error.localizedDescription)
-                }
-                completion(nil) // 在错误情况下返回 nil
-                return
-            }
-
-            availableContent = content
-            if let displays = content?.displays, !displays.isEmpty {
-                completion(content) // 返回成功获取的 content
-            } else {
-                print("There needs to be at least one display connected!".local)
-                completion(nil) // 如果没有显示器连接，则返回 nil
-            }
-        }
+    static func completeRecordingStartCancellation() {
+        let completions = finishRecordingLifecycle()
+        completions.forEach { $0() }
     }
     
     static func updateAvailableContent(completion: @escaping () -> Void) {
-        SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: false) { content, error in
-            if let error = error {
-                switch error {
-                case SCStreamError.userDeclined: requestPermissions()
-                default: print("Error: failed to fetch available content: ".local, error.localizedDescription)
-                }
-                return
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async {
+                updateAvailableContent(completion: completion)
             }
-            availableContent = content
-            assert(availableContent?.displays.isEmpty != nil, "There needs to be at least one display connected!".local)
-            completion()
+            return
+        }
+
+        guard CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() else {
+            requestPermissions()
+            return
+        }
+
+        SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: false) { content, error in
+            DispatchQueue.main.async {
+                if let error {
+                    switch error {
+                    case SCStreamError.userDeclined:
+                        requestPermissions()
+                    default:
+                        print("Error: failed to fetch available content: ".local, error.localizedDescription)
+                    }
+                    return
+                }
+
+                guard let content, !content.displays.isEmpty else {
+                    print("There needs to be at least one display connected!".local)
+                    return
+                }
+                availableContent = content
+                completion()
+            }
         }
     }
     
     static func getSelf() -> SCRunningApplication? {
-        return SCContext.availableContent!.applications.first(where: { Bundle.main.bundleIdentifier == $0.bundleIdentifier })
+        return availableContent?.applications.first(where: {
+            Bundle.main.bundleIdentifier == $0.bundleIdentifier
+        })
     }
     
     static func getSelfWindows() -> [SCWindow]? {
-        return SCContext.availableContent!.windows.filter( {
+        return availableContent?.windows.filter( {
             guard let title = $0.title else { return false }
             return $0.owningApplication?.bundleIdentifier == Bundle.main.bundleIdentifier
             && title != "Mouse Pointer".local
@@ -242,8 +256,8 @@ class SCContext {
     }
     
     static func getWindows(isOnScreen: Bool = true, hideSelf: Bool = true) -> [SCWindow] {
-        var windows = [SCWindow]()
-        windows = availableContent!.windows.filter {
+        guard let availableContent else { return [] }
+        var windows = availableContent.windows.filter {
             guard let app =  $0.owningApplication,
                   let title = $0.title else {//, !title.isEmpty else {
                 return false
@@ -265,8 +279,11 @@ class SCContext {
             icon.size = NSSize(width: 69, height: 69)
             return icon
         }
-        let icon = NSImage(systemSymbolName: "questionmark.app.dashed", accessibilityDescription: "blank icon")
-        icon!.size = NSSize(width: 69, height: 69)
+        let icon = NSImage(
+            systemSymbolName: "questionmark.app.dashed",
+            accessibilityDescription: "blank icon"
+        ) ?? NSImage(size: NSSize(width: 69, height: 69))
+        icon.size = NSSize(width: 69, height: 69)
         return icon
     }
     
@@ -361,7 +378,6 @@ class SCContext {
             if alert.runModal() == .alertFirstButtonReturn {
                 NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
             }
-            NSApp.terminate(self)
         }
     }
     
@@ -687,11 +703,19 @@ class SCContext {
             completion?()
             return
         }
-        if let completion { stopCompletions.append(completion) }
-        guard beginRecordingStop() else {
+        switch registerRecordingStop(completion: completion) {
+        case .cancelStart:
+            return
+        case .start:
+            break
+        case .join:
             if let streamError {
                 print("Stream stopped while recording was already finalizing: \(streamError.localizedDescription)")
             }
+            return
+        case .inactive:
+            print("Ignoring stop request because the recording lifecycle is not active.")
+            completion?()
             return
         }
 
@@ -887,11 +911,8 @@ class SCContext {
             firstFrame = nil
             AppDelegate.shared.presenterType = "OFF"
             controlPanel.close()
-            finishRecordingLifecycle()
+            let completions = finishRecordingLifecycle()
             updateStatusBar()
-
-            let completions = stopCompletions
-            stopCompletions.removeAll()
             completions.forEach { $0() }
         }
     }

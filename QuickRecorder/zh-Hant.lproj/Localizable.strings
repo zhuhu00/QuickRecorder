@@ -58,8 +58,8 @@
 "Custom" = "使用者預設";
 "Area Size:" = "選區尺寸:";
 "Output Size:" = "輸出尺寸:";
-"Audio" = "音訊設定";
-"Video" = "影片設定";
+"Audio" = "音訊";
+"Video" = "影片";
 "Save" = "儲存位置";
 "Exclude QuickRecorder itself" = "排除QuickRecorder視窗";
 "Highlight the Mouse Cursor" = "高亮顯示滑鼠游標";
@@ -211,6 +211,9 @@
 "Standard — 192Kbps" = "標準 — 192Kbps";
 "High — 256Kbps" = "高品質 — 256Kbps";
 "Audio Format" = "音訊格式";
+"Video Quality" = "影片品質";
+"Video Format" = "影片格式";
+"Standard" = "標準";
 "Recording" = "錄製";
 "Show Preview" = "錄製後顯示預覽";
 "Show on Dock" = "顯示在 Dock";

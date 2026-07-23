@@ -23,6 +23,7 @@ func closeStatusBarPopover() {
 private final class StatusBarActionTarget: NSObject, NSPopoverDelegate {
     static let shared = StatusBarActionTarget()
     private lazy var recorderController = NSHostingController(rootView: AnyView(ContentViewNew()))
+    private var outsideClickMonitor: Any?
 
     @objc func togglePopover(_ sender: NSStatusBarButton) {
         if statusBarPopover.isShown {
@@ -36,6 +37,7 @@ private final class StatusBarActionTarget: NSObject, NSPopoverDelegate {
             statusBarPopover.contentViewController = recorderController
         }
         statusBarPopover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
+        startOutsideClickMonitoring()
         DispatchQueue.main.async { restoreCameraOverlayerIfNeeded() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
             NotificationCenter.default.post(name: .quickRecorderPanelDidOpen, object: nil)
@@ -43,8 +45,27 @@ private final class StatusBarActionTarget: NSObject, NSPopoverDelegate {
     }
 
     func popoverDidClose(_ notification: Notification) {
+        stopOutsideClickMonitoring()
         CompactSettingsPanelCoordinator.shared.hide()
         NotificationCenter.default.post(name: .quickRecorderPanelDidClose, object: nil)
+    }
+
+    private func startOutsideClickMonitoring() {
+        stopOutsideClickMonitoring()
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { _ in
+            DispatchQueue.main.async {
+                guard statusBarPopover.isShown else { return }
+                closeStatusBarPopover()
+            }
+        }
+    }
+
+    private func stopOutsideClickMonitoring() {
+        guard let outsideClickMonitor else { return }
+        NSEvent.removeMonitor(outsideClickMonitor)
+        self.outsideClickMonitor = nil
     }
 }
 

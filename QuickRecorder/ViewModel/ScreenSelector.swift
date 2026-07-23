@@ -147,7 +147,11 @@ struct ScreenSelector: View {
                 Spacer()
             }
             .padding(.top, -5)
-        }.frame(width: 780, height:555)
+        }
+        .frame(width: 780, height:555)
+        .onDisappear {
+            viewModel.stopAllStreams()
+        }
     }
     
     func startRecording() {
@@ -165,6 +169,9 @@ class ScreenSelectorViewModel: NSObject, ObservableObject, SCStreamDelegate, SCS
     @Published var screenThumbnails = [ScreenThumbnail]()
     private var allScreens = [SCDisplay]()
     private var streams = [SCStream]()
+    private var targets = [ObjectIdentifier: SCDisplay]()
+    private var captureGeneration = 0
+    private var isStartingStreams = false
     
     override init() {
         super.init()
@@ -174,28 +181,37 @@ class ScreenSelectorViewModel: NSObject, ObservableObject, SCStreamDelegate, SCS
     }
     
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        if CMSampleBufferGetImageBuffer(sampleBuffer) == nil { return }
-        var nsImage = sampleBuffer.nsImage
-        if let index = self.streams.firstIndex(of: stream), index + 1 <= self.allScreens.count {
-            if nsImage == nil { nsImage = SCContext.getWallpaper(self.allScreens[index]) ?? NSImage.unknowScreen }
-            let currentScreen = self.allScreens[index]
-            let thumbnail = ScreenThumbnail(image: nsImage!, screen: currentScreen)
-            if !screenThumbnails.contains(where: { $0.screen == currentScreen }) { screenThumbnails.append(thumbnail) }
-            self.streams[index].stopCapture()
-        }
+        guard CMSampleBufferGetImageBuffer(sampleBuffer) != nil,
+              let screen = targets[ObjectIdentifier(stream)] else { return }
+        let image = sampleBuffer.nsImage
+            ?? SCContext.getWallpaper(screen)
+            ?? NSImage.unknowScreen
+        completeStream(stream, screen: screen, image: image)
+    }
+
+    func stream(_ stream: SCStream, didStopWithError error: Error) {
+        guard let screen = targets[ObjectIdentifier(stream)] else { return }
+        print("Screen thumbnail capture stopped: \(error.localizedDescription)")
+        completeStream(stream, screen: screen, image: NSImage.unknowScreen, stopCapture: false)
     }
 
     func setupStreams() {
+        stopAllStreams()
+        screenThumbnails.removeAll()
+        let generation = captureGeneration
+
         SCContext.updateAvailableContent {
             Task { @MainActor in
+                guard generation == self.captureGeneration else { return }
+                self.isStartingStreams = true
+                defer { self.isStartingStreams = false }
                 do {
-                    self.streams.removeAll()
-                    self.screenThumbnails.removeAll()
                     guard let screens = SCContext.availableContent?.displays else { return }
                     self.allScreens = screens
                     let qrSelf = SCContext.getSelf()
                     let contentFilters = self.allScreens.map { SCContentFilter(display: $0, excludingApplications: qrSelf != nil ? [qrSelf!] : [], exceptingWindows: []) }
                     for (index, contentFilter) in contentFilters.enumerated() {
+                        guard generation == self.captureGeneration else { return }
                         let streamConfiguration = SCStreamConfiguration()
                         streamConfiguration.width = Int(self.allScreens[index].frame.width)
                         streamConfiguration.height = Int(self.allScreens[index].frame.height)
@@ -206,13 +222,59 @@ class ScreenSelectorViewModel: NSObject, ObservableObject, SCStreamDelegate, SCS
                         streamConfiguration.queueDepth = 3
                         let stream = SCStream(filter: contentFilter, configuration: streamConfiguration, delegate: self)
                         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: .main)
-                        try await stream.startCapture()
                         self.streams.append(stream)
+                        self.targets[ObjectIdentifier(stream)] = self.allScreens[index]
+                        try await stream.startCapture()
+                        guard generation == self.captureGeneration else {
+                            try? await stream.stopCapture()
+                            return
+                        }
+                        self.scheduleTimeout(for: stream, generation: generation)
                     }
                 } catch {
                     print("Get screenshot error：\(error)")
+                    self.stopAllStreams()
                 }
             }
+        }
+    }
+
+    func stopAllStreams() {
+        captureGeneration &+= 1
+        isStartingStreams = false
+        let activeStreams = streams
+        streams.removeAll()
+        targets.removeAll()
+        activeStreams.forEach { $0.stopCapture() }
+    }
+
+    private func scheduleTimeout(for stream: SCStream, generation: Int) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self, weak stream] in
+            guard let self, let stream,
+                  generation == self.captureGeneration,
+                  let screen = self.targets[ObjectIdentifier(stream)] else { return }
+            self.completeStream(
+                stream,
+                screen: screen,
+                image: SCContext.getWallpaper(screen) ?? NSImage.unknowScreen
+            )
+        }
+    }
+
+    private func completeStream(
+        _ stream: SCStream,
+        screen: SCDisplay,
+        image: NSImage,
+        stopCapture: Bool = true
+    ) {
+        let identifier = ObjectIdentifier(stream)
+        guard targets.removeValue(forKey: identifier) != nil else { return }
+        streams.removeAll { $0 === stream }
+        if stopCapture { stream.stopCapture() }
+
+        let thumbnail = ScreenThumbnail(image: image, screen: screen)
+        if !screenThumbnails.contains(where: { $0.screen == screen }) {
+            screenThumbnails.append(thumbnail)
         }
     }
 }

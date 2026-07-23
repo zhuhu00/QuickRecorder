@@ -14,7 +14,6 @@ import UserNotifications
 import KeyboardShortcuts
 import ServiceManagement
 
-var scPerm = false
 let fd = FileManager.default
 let ud = UserDefaults.standard
 var statusBarItem: NSStatusItem!
@@ -52,6 +51,16 @@ enum CompactRecorderPreferences {
             defaults.set(AudioQuality.high.rawValue, forKey: "audioQuality")
         }
 
+        let supportedVideoFormats = [VideoFormat.mp4.rawValue, VideoFormat.mov.rawValue]
+        if !supportedVideoFormats.contains(defaults.string(forKey: "videoFormat") ?? "") {
+            defaults.set(VideoFormat.mp4.rawValue, forKey: "videoFormat")
+        }
+
+        let supportedVideoQualities = [0.7, 1.0]
+        if !supportedVideoQualities.contains(defaults.double(forKey: "videoQuality")) {
+            defaults.set(1.0, forKey: "videoQuality")
+        }
+
         defaults.set(0, forKey: "countdown")
         defaults.set(1, forKey: "poSafeDelay")
         defaults.set(BackgroundType.wallpaper.rawValue, forKey: "background")
@@ -64,9 +73,7 @@ enum CompactRecorderPreferences {
         defaults.set(false, forKey: "enableAEC")
         defaults.set(true, forKey: "preventSleep")
         defaults.set(true, forKey: "hideSelf")
-        defaults.set(VideoFormat.mp4.rawValue, forKey: "videoFormat")
         defaults.set(Encoder.defaultValue.rawValue, forKey: "encoder")
-        defaults.set(1.0, forKey: "videoQuality")
         defaults.set(false, forKey: "recordHDR")
         defaults.set(false, forKey: "withAlpha")
 
@@ -237,8 +244,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
     
     func applicationWillFinishLaunching(_ notification: Notification) {
         guard !AppRuntime.isRunningUnitTests else { return }
-
-        scPerm = SCContext.updateAvailableContentSync() != nil
         
         let process = NSWorkspace.shared.runningApplications.filter({ $0.bundleIdentifier == Bundle.main.bundleIdentifier })
         if process.count > 1 {
@@ -362,28 +367,46 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
         KeyboardShortcuts.onKeyDown(for: .pauseResume) { if SCContext.stream != nil { SCContext.pauseRecording() }}
         KeyboardShortcuts.onKeyDown(for: .startWithAudio) {[self] in
             if SCContext.streamType != nil { return }
+            guard let displayID = SCContext.getScreenWithMouse()?.displayID else { return }
             closeAllWindow()
-            prepRecord(type: "audio", screens: SCContext.getSCDisplayWithMouse(), windows: nil, fastStart: true)
+            prepRecord(
+                type: "audio",
+                displayID: displayID,
+                windowIDs: nil,
+                fastStart: true
+            )
         }
         KeyboardShortcuts.onKeyDown(for: .startWithScreen) {[self] in
-            if SCContext.stream != nil { return }
+            if SCContext.streamType != nil { return }
+            guard let displayID = SCContext.getScreenWithMouse()?.displayID else { return }
             closeAllWindow()
-            prepRecord(type: "display", screens: SCContext.getSCDisplayWithMouse(), windows: nil, fastStart: true)
+            prepRecord(
+                type: "display",
+                displayID: displayID,
+                windowIDs: nil,
+                fastStart: true
+            )
         }
         KeyboardShortcuts.onKeyDown(for: .startWithArea) {[self] in
-            if SCContext.stream != nil { return }
-            closeAllWindow()
-            showAreaSelector(size: NSSize(width: 600, height: 450))
+            if SCContext.streamType != nil { return }
+            SCContext.updateAvailableContent {
+                guard SCContext.streamType == nil else { return }
+                closeAllWindow()
+                self.showAreaSelector(size: NSSize(width: 600, height: 450))
+            }
         }
         KeyboardShortcuts.onKeyDown(for: .startWithWindow) { [self] in
-            if SCContext.stream != nil { return }
+            if SCContext.streamType != nil { return }
+            guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+                  let windowID = WindowHighlighter.shared.getFrontmostWindowID(for: pid),
+                  let displayID = SCContext.getScreenWithMouse()?.displayID else { return }
             closeAllWindow()
-            let frontmostApp = NSWorkspace.shared.frontmostApplication
-            if let pid = frontmostApp?.processIdentifier {
-                guard let scWindow = SCContext.getWindows().first(where: { $0.owningApplication?.processID == pid && $0.title != "" && $0.isOnScreen }) else { return }
-                prepRecord(type: "window", screens: SCContext.getSCDisplayWithMouse(), windows: [scWindow], fastStart: true)
-                return
-            }
+            prepRecord(
+                type: "window",
+                displayID: displayID,
+                windowIDs: [windowID],
+                fastStart: true
+            )
         }
         updateStatusBar()
     }

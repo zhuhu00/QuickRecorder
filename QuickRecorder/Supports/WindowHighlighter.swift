@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import CoreGraphics
 import ScreenCaptureKit
 
 struct CoverView: View {
@@ -94,16 +95,18 @@ struct HighlightMask: View {
                 }
             }
             .onPressGesture {
-                if let w = WindowHighlighter.shared.getSCWindowWithID(UInt32(windowID)),
-                   let d = SCContext.getSCDisplayWithMouse() {
+                SCContext.updateAvailableContent {
+                    guard let w = WindowHighlighter.shared.getSCWindowWithID(UInt32(windowID)),
+                          let d = SCContext.getSCDisplayWithMouse() else {
+                        color = .red
+                        withAnimation(.easeInOut(duration: 0.6)) { color = .blue }
+                        return
+                    }
                     display = d
                     window = w
                     WindowHighlighter.shared.stopMouseMonitor()
                     showSheet = true
-                    return
                 }
-                color = .red
-                withAnimation(.easeInOut(duration: 0.6)) { color = .blue }
             }
     }
     
@@ -271,9 +274,15 @@ class WindowHighlighter {
     
     func getSCWindowWithID(_ windowID: UInt32?) -> SCWindow? {
         guard let windowID else { return nil }
-        _ = SCContext.updateAvailableContentSync()
         let windows = SCContext.getWindows()
         return windows.first(where: { $0.windowID == windowID })
+    }
+
+    func getFrontmostWindowID(for processID: pid_t) -> UInt32? {
+        guard let window = getAllCGWindows()?.first(where: {
+            ($0[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == processID
+        }) else { return nil }
+        return (window[kCGWindowNumber as String] as? NSNumber)?.uint32Value
     }
     
     func getCGWindowFrame(window: [String: Any]) -> CGRect? {

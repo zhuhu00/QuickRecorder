@@ -11,13 +11,13 @@ import ScreenCaptureKit
 enum CompactRecorderLayout {
     static let width: CGFloat = 850
     static let collapsedHeight: CGFloat = 80
-    static let settingsPanelCollapsedHeight: CGFloat = 166
-    static let settingsPanelExpandedHeight: CGFloat = 380
+    static let settingsPanelCollapsedHeight: CGFloat = 184
+    static let settingsPanelExpandedHeight: CGFloat = 398
     static let settingsPanelGap: CGFloat = 8
     static let menuBarWidth: CGFloat = 416
     static let menuBarHeight: CGFloat = 150
-    static let menuBarSettingsCollapsedHeight: CGFloat = 440
-    static let menuBarSettingsExpandedHeight: CGFloat = 690
+    static let menuBarSettingsCollapsedHeight: CGFloat = 462
+    static let menuBarSettingsExpandedHeight: CGFloat = 712
 }
 
 struct ContentViewNew: View {
@@ -286,14 +286,20 @@ struct ContentViewNew: View {
     }
 
     private func startSystemAudio() {
-        guard let display = SCContext.getSCDisplayWithMouse() else { return }
+        guard let displayID = SCContext.getScreenWithMouse()?.displayID else { return }
         dismissRecorderPanel()
-        appDelegate.createCountdownPanel(screen: display) {
-            AppDelegate.shared.prepRecord(
-                type: "audio",
-                screens: SCContext.getSCDisplayWithMouse(),
-                windows: nil
-            )
+        SCContext.updateAvailableContent {
+            guard SCContext.streamType == nil,
+                  let display = SCContext.availableContent?.displays.first(where: {
+                      $0.displayID == displayID
+                  }) else { return }
+            appDelegate.createCountdownPanel(screen: display) {
+                AppDelegate.shared.prepRecord(
+                    type: "audio",
+                    screens: display,
+                    windows: nil
+                )
+            }
         }
     }
 
@@ -305,18 +311,16 @@ struct ContentViewNew: View {
     private func selectArea() {
         dismissRecorderPanel()
         SCContext.updateAvailableContent {
-            DispatchQueue.main.async {
-                appDelegate.showAreaSelector(size: NSSize(width: 600, height: 450))
-                var currentDisplay = SCContext.getSCDisplayWithMouse()
-                mouseMonitor = NSEvent.addGlobalMonitorForEvents(
-                    matching: [.mouseMoved, .rightMouseDown, .leftMouseDown, .otherMouseDown]
-                ) { _ in
-                    let display = SCContext.getSCDisplayWithMouse()
-                    if display != currentDisplay {
-                        currentDisplay = display
-                        closeAllWindow()
-                        appDelegate.showAreaSelector(size: NSSize(width: 600, height: 450))
-                    }
+            appDelegate.showAreaSelector(size: NSSize(width: 600, height: 450))
+            var currentDisplay = SCContext.getSCDisplayWithMouse()
+            mouseMonitor = NSEvent.addGlobalMonitorForEvents(
+                matching: [.mouseMoved, .rightMouseDown, .leftMouseDown, .otherMouseDown]
+            ) { _ in
+                let display = SCContext.getSCDisplayWithMouse()
+                if display != currentDisplay {
+                    currentDisplay = display
+                    closeAllWindow()
+                    appDelegate.showAreaSelector(size: NSSize(width: 600, height: 450))
                 }
             }
         }

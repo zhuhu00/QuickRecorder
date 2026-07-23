@@ -14,6 +14,8 @@ struct CompactSettingsView: View {
 
     @AppStorage("audioFormat") private var audioFormat: AudioFormat = .aac
     @AppStorage("audioQuality") private var audioQuality: AudioQuality = .high
+    @AppStorage("videoFormat") private var videoFormat: VideoFormat = .mp4
+    @AppStorage("videoQuality") private var videoQuality: Double = 1.0
     @AppStorage("recordingIndicatorStyle") private var recordingIndicatorStyle: RecordingIndicatorStyle = .defaultValue
     @AppStorage("showPreview") private var showPreview: Bool = true
     @AppStorage("saveDirectory") private var saveDirectory: String = NSHomeDirectory() + "/Desktop"
@@ -47,24 +49,50 @@ struct CompactSettingsView: View {
 
     private var outputSettings: some View {
         CompactSettingsCard(title: "Output") {
-            CompactSettingRow(label: "Audio Quality") {
-                Picker("Audio Quality".local, selection: $audioQuality) {
-                    Text("Standard — 192Kbps".local).tag(AudioQuality.good)
-                    Text("High — 256Kbps".local).tag(AudioQuality.high)
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .frame(width: 160)
-            }
+            HStack(alignment: .top, spacing: 8) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Audio".local)
+                        .font(.system(size: 11, weight: .medium))
 
-            CompactSettingRow(label: "Audio Format") {
-                Picker("Audio Format".local, selection: $audioFormat) {
-                    Text("AAC").tag(AudioFormat.aac)
-                    Text("MP3").tag(AudioFormat.mp3)
+                    Picker("Audio Quality".local, selection: $audioQuality) {
+                        Text("192K").tag(AudioQuality.good)
+                        Text("256K").tag(AudioQuality.high)
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: .infinity)
+
+                    Picker("Audio Format".local, selection: $audioFormat) {
+                        Text("AAC").tag(AudioFormat.aac)
+                        Text("MP3").tag(AudioFormat.mp3)
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: .infinity)
                 }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-                .frame(width: 150)
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Video".local)
+                        .font(.system(size: 11, weight: .medium))
+
+                    Picker("Video Quality".local, selection: $videoQuality) {
+                        Text("Standard".local).tag(0.7)
+                        Text("High".local).tag(1.0)
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: .infinity)
+
+                    Picker("Video Format".local, selection: $videoFormat) {
+                        Text("MP4").tag(VideoFormat.mp4)
+                        Text("MOV").tag(VideoFormat.mov)
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: .infinity)
+                }
             }
 
             CompactSettingRow(label: "Output Folder") {

@@ -39,6 +39,37 @@ final class RecordingLifecycleTests: XCTestCase {
         XCTAssertEqual(lifecycle.phase, .stopping)
     }
 
+    func testDuplicateStopJoinsActiveStop() {
+        var lifecycle = RecordingLifecycle()
+        XCTAssertTrue(lifecycle.beginStart())
+        XCTAssertTrue(lifecycle.completeStart())
+
+        XCTAssertEqual(lifecycle.requestStop(), .start)
+        XCTAssertEqual(lifecycle.requestStop(), .join)
+        XCTAssertEqual(lifecycle.phase, .stopping)
+    }
+
+    func testStopDuringStartRequestsCancellation() {
+        var lifecycle = RecordingLifecycle()
+        XCTAssertTrue(lifecycle.beginStart())
+
+        XCTAssertEqual(lifecycle.requestStop(), .cancelStart)
+        XCTAssertEqual(lifecycle.requestStop(), .join)
+        XCTAssertFalse(lifecycle.completeStart())
+        XCTAssertEqual(lifecycle.phase, .stopping)
+
+        lifecycle.finish()
+        XCTAssertEqual(lifecycle.phase, .idle)
+    }
+
+    func testStopRequestWhenInactiveCompletesImmediately() {
+        var lifecycle = RecordingLifecycle()
+
+        XCTAssertEqual(lifecycle.requestStop(), .inactive)
+        lifecycle.fail()
+        XCTAssertEqual(lifecycle.requestStop(), .inactive)
+    }
+
     func testFailedStartCanRetry() {
         var lifecycle = RecordingLifecycle()
         XCTAssertTrue(lifecycle.beginStart())
@@ -96,6 +127,7 @@ final class QuickRecorderConfigurationTests: XCTestCase {
         defaults.set(true, forKey: "includeMenuBar")
         defaults.set(true, forKey: "enableAEC")
         defaults.set(VideoFormat.mov.rawValue, forKey: "videoFormat")
+        defaults.set(0.3, forKey: "videoQuality")
         defaults.set(Encoder.h264.rawValue, forKey: "encoder")
         defaults.set(true, forKey: "withAlpha")
 
@@ -105,7 +137,8 @@ final class QuickRecorderConfigurationTests: XCTestCase {
         XCTAssertEqual(defaults.integer(forKey: "audioQuality"), AudioQuality.high.rawValue)
         XCTAssertFalse(defaults.bool(forKey: "includeMenuBar"))
         XCTAssertFalse(defaults.bool(forKey: "enableAEC"))
-        XCTAssertEqual(defaults.string(forKey: "videoFormat"), VideoFormat.mp4.rawValue)
+        XCTAssertEqual(defaults.string(forKey: "videoFormat"), VideoFormat.mov.rawValue)
+        XCTAssertEqual(defaults.double(forKey: "videoQuality"), 1.0)
         XCTAssertEqual(defaults.string(forKey: "encoder"), Encoder.h265.rawValue)
         XCTAssertFalse(defaults.bool(forKey: "withAlpha"))
         XCTAssertTrue(defaults.bool(forKey: "remuxAudio"))
@@ -113,13 +146,15 @@ final class QuickRecorderConfigurationTests: XCTestCase {
         XCTAssertTrue(defaults.bool(forKey: "hideSelf"))
     }
 
-    func testCompactPreferencesPreserveSupportedAudioChoices() {
+    func testCompactPreferencesPreserveSupportedOutputChoices() {
         let suiteName = "QuickRecorderTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set(AudioFormat.mp3.rawValue, forKey: "audioFormat")
         defaults.set(AudioQuality.good.rawValue, forKey: "audioQuality")
+        defaults.set(VideoFormat.mov.rawValue, forKey: "videoFormat")
+        defaults.set(0.7, forKey: "videoQuality")
         defaults.set(true, forKey: "showOnDock")
         defaults.set(false, forKey: "showMenubar")
 
@@ -127,6 +162,8 @@ final class QuickRecorderConfigurationTests: XCTestCase {
 
         XCTAssertEqual(defaults.string(forKey: "audioFormat"), AudioFormat.mp3.rawValue)
         XCTAssertEqual(defaults.integer(forKey: "audioQuality"), AudioQuality.good.rawValue)
+        XCTAssertEqual(defaults.string(forKey: "videoFormat"), VideoFormat.mov.rawValue)
+        XCTAssertEqual(defaults.double(forKey: "videoQuality"), 0.7)
         XCTAssertTrue(defaults.bool(forKey: "showOnDock"))
         XCTAssertFalse(defaults.bool(forKey: "showMenubar"))
     }

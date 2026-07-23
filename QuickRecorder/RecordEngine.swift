@@ -56,6 +56,43 @@ private enum RecordingStartError: LocalizedError {
 
 extension AppDelegate {
     @objc func prepRecord(type: String, screens: SCDisplay?, windows: [SCWindow]?, fastStart: Bool = false) {
+        prepRecord(
+            type: type,
+            displayID: screens?.displayID,
+            windowIDs: windows?.map(\.windowID),
+            fastStart: fastStart
+        )
+    }
+
+    func prepRecord(
+        type: String,
+        displayID: CGDirectDisplayID?,
+        windowIDs: [CGWindowID]?,
+        fastStart: Bool = false,
+        recordMicrophoneOverride: Bool? = nil
+    ) {
+        guard SCContext.streamType == nil,
+              ["window", "windows", "display", "area", "audio"].contains(type) else { return }
+
+        SCContext.updateAvailableContent {
+            guard SCContext.streamType == nil else { return }
+            self.prepareRecord(
+                type: type,
+                displayID: displayID,
+                windowIDs: windowIDs,
+                fastStart: fastStart,
+                recordMicrophoneOverride: recordMicrophoneOverride
+            )
+        }
+    }
+
+    private func prepareRecord(
+        type: String,
+        displayID: CGDirectDisplayID?,
+        windowIDs: [CGWindowID]?,
+        fastStart: Bool,
+        recordMicrophoneOverride: Bool?
+    ) {
         switch type {
         case "window":  SCContext.streamType = .window
         case "windows":  SCContext.streamType = .windows
@@ -93,24 +130,29 @@ extension AppDelegate {
         }
         
         // file preparation
-        if let screens = screens {
-            SCContext.screen = availableContent.displays.first(where: { $0 == screens })
-        } else {
+        guard let displayID,
+              let screen = availableContent.displays.first(where: {
+                  $0.displayID == displayID
+              }) else {
             failRecordingPreparation(RecordingStartError.missingDisplay)
             return
         }
+        SCContext.screen = screen
         
-        if let windows = windows {
-            SCContext.window = availableContent.windows.filter({ windows.contains($0) })
+        if let windowIDs {
+            let matchedWindows = windowIDs.compactMap { windowID in
+                availableContent.windows.first(where: { $0.windowID == windowID })
+            }
+            guard matchedWindows.count == windowIDs.count else {
+                failRecordingPreparation(RecordingStartError.missingSelection("window"))
+                return
+            }
+            SCContext.window = matchedWindows
         } else if SCContext.streamType == .window || SCContext.streamType == .windows {
             failRecordingPreparation(RecordingStartError.missingSelection("window"))
             return
         }
         
-        guard let screen = SCContext.screen ?? SCContext.getSCDisplayWithMouse() else {
-            failRecordingPreparation(RecordingStartError.missingDisplay)
-            return
-        }
         let qrWindows = SCContext.getSelfWindows()
         let dockApp = availableContent.applications.first(where: { $0.bundleIdentifier.description == "com.apple.dock" })
         let wallpaper = availableContent.windows.filter({
@@ -179,7 +221,13 @@ extension AppDelegate {
             failRecordingPreparation(message: "Unable to prepare the selected recording source.".local)
             return
         }
-        Task { await record(filter: filter, fastStart: fastStart) }
+        Task {
+            await record(
+                filter: filter,
+                fastStart: fastStart,
+                recordMicrophoneOverride: recordMicrophoneOverride
+            )
+        }
     }
 
     private func failRecordingPreparation(_ error: Error) {
@@ -195,11 +243,15 @@ extension AppDelegate {
         updateStatusBar()
     }
 
-    func record(filter: SCContentFilter, fastStart: Bool = true) async {
+    func record(
+        filter: SCContentFilter,
+        fastStart: Bool = true,
+        recordMicrophoneOverride: Bool? = nil
+    ) async {
         SCContext.resetRecordingTimeline()
         
         let audioOnly = SCContext.streamType == .systemaudio
-        let shouldRecordMicrophone = recordMic
+        let shouldRecordMicrophone = recordMicrophoneOverride ?? recordMic
         let selectedMicrophone = shouldRecordMicrophone
             ? SCContext.migrateMicrophoneSelectionIfNeeded(micDevice)
             : micDevice
@@ -339,22 +391,50 @@ extension AppDelegate {
             try startMicRecording(microphoneDevice: selectedMicrophone, enableAEC: selectedAEC)
             microphoneStarted = true
         }
+        guard !SCContext.isStopping else {
+            await rollbackRecordingStart(
+                stream: activeStream,
+                outputURL: createdOutputURL,
+                microphoneStarted: microphoneStarted,
+                captureStartAttempted: false,
+                error: nil,
+                treatingAsCancellation: true
+            )
+            return
+        }
         captureStartAttempted = true
         try await stream.startCapture()
-        SCContext.completeRecordingStart()
+        guard SCContext.completeRecordingStart() else {
+            await rollbackRecordingStart(
+                stream: activeStream,
+                outputURL: createdOutputURL,
+                microphoneStarted: microphoneStarted,
+                captureStartAttempted: captureStartAttempted,
+                error: nil,
+                treatingAsCancellation: true
+            )
+            return
+        }
         } catch {
             await rollbackRecordingStart(
                 stream: activeStream,
                 outputURL: createdOutputURL,
                 microphoneStarted: microphoneStarted,
                 captureStartAttempted: captureStartAttempted,
-                error: error
+                error: error,
+                treatingAsCancellation: false
             )
             return
         }
-        if !audioOnly { registerGlobalMouseMonitor() }
-        DispatchQueue.main.async { updateStatusBar() }
-        if preventSleep { SleepPreventer.shared.preventSleep(reason: "Screen recording in progress") }
+        let finishStartWork = DispatchWorkItem { [weak self] in
+            guard let self, !SCContext.isStopping else { return }
+            if !audioOnly { self.registerGlobalMouseMonitor() }
+            updateStatusBar()
+            if self.preventSleep {
+                SleepPreventer.shared.preventSleep(reason: "Screen recording in progress")
+            }
+        }
+        DispatchQueue.main.async(execute: finishStartWork)
     }
 
     func prepareAudioRecording(recordsMicrophone: Bool) throws -> URL {
@@ -643,7 +723,8 @@ extension AppDelegate {
         outputURL: URL?,
         microphoneStarted: Bool,
         captureStartAttempted: Bool,
-        error: Error
+        error: Error?,
+        treatingAsCancellation: Bool
     ) async {
         SCContext.resetWriterSession()
         if captureStartAttempted, let stream {
@@ -675,7 +756,7 @@ extension AppDelegate {
         SCContext.filePath2 = nil
 
         await MainActor.run {
-            SCContext.failRecordingStart()
+            let cancelled = treatingAsCancellation || SCContext.isStopping
             SCContext.filter = nil
             SCContext.stream = nil
             SCContext.streamType = nil
@@ -688,12 +769,17 @@ extension AppDelegate {
             SCContext.resetRecordingTimeline()
             PopoverState.shared.isPaused = false
             updateStatusBar()
-            _ = createAlert(
-                level: .critical,
-                title: "Failed to Record".local,
-                message: error.localizedDescription,
-                button1: "OK"
-            ).runModal()
+            if cancelled {
+                SCContext.completeRecordingStartCancellation()
+            } else {
+                SCContext.failRecordingStart()
+                _ = createAlert(
+                    level: .critical,
+                    title: "Failed to Record".local,
+                    message: error?.localizedDescription ?? "Unknown Error".local,
+                    button1: "OK"
+                ).runModal()
+            }
         }
     }
     

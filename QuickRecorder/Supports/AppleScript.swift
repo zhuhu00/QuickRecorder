@@ -9,16 +9,26 @@ import Foundation
 import AppKit
 import ScreenCaptureKit
 
+private func redispatchToMainIfNeeded(_ command: NSScriptCommand) -> Bool {
+    guard !Thread.isMainThread else { return false }
+    DispatchQueue.main.async {
+        _ = command.performDefaultImplementation()
+    }
+    return true
+}
+
 class selectScreen: NSScriptCommand {
     override func performDefaultImplementation() -> Any? {
+        if redispatchToMainIfNeeded(self) { return nil }
         if SCContext.stream != nil {
             createAlert(title: "Error".local, message: "Already recording!".local, button1: "OK".local).runModal()
             return nil
         }
+        let arguments = evaluatedArguments ?? [:]
         SCContext.updateAvailableContent {
             DispatchQueue.main.async {
                 closeAllWindow()
-                if var index = self.evaluatedArguments!["index"] as? Int {
+                if var index = arguments["index"] as? Int {
                     guard let screens = SCContext.availableContent?.displays else { return }
                     index -= 1
                     closeAllWindow()
@@ -43,6 +53,7 @@ class selectScreen: NSScriptCommand {
 
 class selectArea: NSScriptCommand {
     override func performDefaultImplementation() -> Any? {
+        if redispatchToMainIfNeeded(self) { return nil }
         if SCContext.stream != nil {
             createAlert(title: "Error".local, message: "Already recording!".local, button1: "OK".local).runModal()
             return nil
@@ -70,18 +81,20 @@ class selectArea: NSScriptCommand {
 
 class selectWindows: NSScriptCommand {
     override func performDefaultImplementation() -> Any? {
+        if redispatchToMainIfNeeded(self) { return nil }
         if SCContext.stream != nil {
             createAlert(title: "Error".local, message: "Already recording!".local, button1: "OK".local).runModal()
             return nil
         }
+        let arguments = evaluatedArguments ?? [:]
         SCContext.updateAvailableContent {
             DispatchQueue.main.async {
                 closeAllWindow()
-                if let title = self.evaluatedArguments!["title"] as? String {
+                if let title = arguments["title"] as? String {
                     var windows = [SCWindow]()
                     guard let w = SCContext.availableContent?.windows.filter({ $0.title == title }) else { return }
                     windows = w
-                    if let app = self.evaluatedArguments!["app"] as? String {
+                    if let app = arguments["app"] as? String {
                         guard let w = SCContext.availableContent?.windows.filter({ $0.title == title && $0.owningApplication?.applicationName == app }) else { return }
                         windows = w
                     }
@@ -95,7 +108,7 @@ class selectWindows: NSScriptCommand {
                         createAlert(title: "Error".local, message: "Duplicate window exists, please select it manually!".local, button1: "OK".local).runModal()
                         return
                     }
-                    let window = windows.first!
+                    guard let window = windows.first else { return }
                     guard let screens = SCContext.availableContent?.displays else { return }
                     var s = [SCDisplay]()
                     for screen in screens {
@@ -105,16 +118,16 @@ class selectWindows: NSScriptCommand {
                         createAlert(title: "Error".local, message: "Unable to find the screen this window belongs to!".local, button1: "OK".local).runModal()
                         return
                     }
-                    if let display = SCContext.getSCDisplayWithMouse() {
-                        if s.contains(display) {
-                            AppDelegate.shared.createCountdownPanel(screen: display) {
-                                AppDelegate.shared.prepRecord(type: "window" , screens: s.first!, windows: [window])
-                            }
-                        } else {
-                            AppDelegate.shared.createCountdownPanel(screen: s.first!) {
-                                AppDelegate.shared.prepRecord(type: "window" , screens: s.first!, windows: [window])
-                            }
-                        }
+                    guard let firstDisplay = s.first else { return }
+                    let targetDisplay = SCContext.getSCDisplayWithMouse()
+                        .flatMap { s.contains($0) ? $0 : nil }
+                        ?? firstDisplay
+                    AppDelegate.shared.createCountdownPanel(screen: targetDisplay) {
+                        AppDelegate.shared.prepRecord(
+                            type: "window",
+                            screens: targetDisplay,
+                            windows: [window]
+                        )
                     }
                 } else {
                     closeAllWindow()
@@ -128,37 +141,38 @@ class selectWindows: NSScriptCommand {
 
 class recordAudio: NSScriptCommand {
     override func performDefaultImplementation() -> Any? {
+        if redispatchToMainIfNeeded(self) { return nil }
         if SCContext.stream != nil {
             createAlert(title: "Error".local, message: "Already recording!".local, button1: "OK".local).runModal()
             return nil
         }
-        SCContext.updateAvailableContent {
-            DispatchQueue.main.async {
-                let m = UserDefaults.standard.bool(forKey: "recordMic")
-                if let mic = self.evaluatedArguments!["mic"] as? Bool {
-                    UserDefaults.standard.set(mic, forKey: "recordMic")
-                }
-                closeAllWindow()
-                AppDelegate.shared.prepRecord(type: "audio", screens: SCContext.getSCDisplayWithMouse(), windows: nil)
-                UserDefaults.standard.set(m, forKey: "recordMic")
-            }
-        }
+        guard let displayID = SCContext.getScreenWithMouse()?.displayID else { return nil }
+        let microphoneOverride = evaluatedArguments?["mic"] as? Bool
+        closeAllWindow()
+        AppDelegate.shared.prepRecord(
+            type: "audio",
+            displayID: displayID,
+            windowIDs: nil,
+            recordMicrophoneOverride: microphoneOverride
+        )
         return nil
     }
 }
 
 class setPreferences: NSScriptCommand {
     override func performDefaultImplementation() -> Any? {
+        if redispatchToMainIfNeeded(self) { return nil }
         if SCContext.stream != nil {
             createAlert(title: "Error".local, message: "Already recording!".local, button1: "OK".local).runModal()
             return nil
         }
-        if let hires = self.evaluatedArguments!["hires"] as? Bool { UserDefaults.standard.set(hires, forKey: "highRes") }
-        if let fps = self.evaluatedArguments!["fps"] as? Int { UserDefaults.standard.set(fps, forKey: "frameRate") }
-        if let cursor = self.evaluatedArguments!["cursor"] as? Bool { UserDefaults.standard.set(cursor, forKey: "showMouse") }
-        if let sound = self.evaluatedArguments!["sound"] as? Bool { UserDefaults.standard.set(sound, forKey: "recordWinSound") }
-        if let microphone = self.evaluatedArguments!["microphone"] as? Bool { UserDefaults.standard.set(microphone, forKey: "recordMic") }
-        if let quality = self.evaluatedArguments!["quality"] as? Int {
+        let arguments = evaluatedArguments ?? [:]
+        if let hires = arguments["hires"] as? Bool { UserDefaults.standard.set(hires, forKey: "highRes") }
+        if let fps = arguments["fps"] as? Int { UserDefaults.standard.set(fps, forKey: "frameRate") }
+        if let cursor = arguments["cursor"] as? Bool { UserDefaults.standard.set(cursor, forKey: "showMouse") }
+        if let sound = arguments["sound"] as? Bool { UserDefaults.standard.set(sound, forKey: "recordWinSound") }
+        if let microphone = arguments["microphone"] as? Bool { UserDefaults.standard.set(microphone, forKey: "recordMic") }
+        if let quality = arguments["quality"] as? Int {
             if [1,2,3].contains(quality) {
                 switch quality {
                     case 1: UserDefaults.standard.set(0.3, forKey: "videoQuality")
@@ -167,12 +181,12 @@ class setPreferences: NSScriptCommand {
                 }
             }
         }
-        if let micname = self.evaluatedArguments!["micname"] as? String {
+        if let micname = arguments["micname"] as? String {
             if let microphoneID = SCContext.microphoneID(for: micname) {
                 UserDefaults.standard.set(microphoneID, forKey: "micDevice")
             }
         }
-        if let hdr = self.evaluatedArguments!["hdr"] as? Bool {
+        if let hdr = arguments["hdr"] as? Bool {
             if #available(macOS 15.0, *) {
                 UserDefaults.standard.set(hdr, forKey: "recordHDR")
             }
