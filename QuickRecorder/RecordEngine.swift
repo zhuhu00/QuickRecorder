@@ -685,6 +685,7 @@ extension AppDelegate {
                 SCContext.stopMicrophoneCapture()
                 ud.set("default", forKey: "micDevice")
                 try startMicRecording(microphoneDevice: "default", enableAEC: enableAEC)
+                SCContext.migrateMicrophoneSelectionIfNeeded("default")
                 SCContext.showNotification(
                     title: "Microphone Changed".local,
                     body: "The selected microphone is unavailable. Recording will use the default microphone.".local,
@@ -703,6 +704,7 @@ extension AppDelegate {
         ud.set("default", forKey: "micDevice")
         do {
             try startMicRecording(microphoneDevice: "default", enableAEC: enableAEC)
+            SCContext.migrateMicrophoneSelectionIfNeeded("default")
             SCContext.showNotification(
                 title: "Microphone Changed".local,
                 body: "The selected microphone was disconnected. Recording continues with the default microphone.".local,

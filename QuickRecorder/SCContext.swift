@@ -967,9 +967,15 @@ class SCContext {
     static func microphoneID(for selection: String, devices: [AVCaptureDevice]? = nil) -> String? {
         let selection = selection.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !selection.isEmpty else { return nil }
-        if selection == "default" { return selection }
 
         let devices = devices ?? getMicrophone()
+        if selection == "default" {
+            if let defaultDeviceID = AVCaptureDevice.default(for: .audio)?.uniqueID,
+               devices.contains(where: { $0.uniqueID == defaultDeviceID }) {
+                return defaultDeviceID
+            }
+            return devices.first?.uniqueID
+        }
         if let device = devices.first(where: { $0.uniqueID == selection }) {
             return device.uniqueID
         }
@@ -984,12 +990,32 @@ class SCContext {
         _ selection: String? = nil,
         devices: [AVCaptureDevice]? = nil
     ) -> String {
+        let devices = devices ?? getMicrophone()
         let savedSelection = selection ?? ud.string(forKey: "micDevice") ?? "default"
-        let resolvedSelection = microphoneID(for: savedSelection, devices: devices) ?? "default"
+        let resolvedSelection = resolvedMicrophoneSelection(
+            savedSelection,
+            availableDeviceIDs: devices.map(\.uniqueID),
+            defaultDeviceID: AVCaptureDevice.default(for: .audio)?.uniqueID
+        )
         if ud.string(forKey: "micDevice") != resolvedSelection {
             ud.set(resolvedSelection, forKey: "micDevice")
         }
         return resolvedSelection
+    }
+
+    static func resolvedMicrophoneSelection(
+        _ savedSelection: String,
+        availableDeviceIDs: [String],
+        defaultDeviceID: String?
+    ) -> String {
+        let savedSelection = savedSelection.trimmingCharacters(in: .whitespacesAndNewlines)
+        if savedSelection != "default", availableDeviceIDs.contains(savedSelection) {
+            return savedSelection
+        }
+        if let defaultDeviceID, availableDeviceIDs.contains(defaultDeviceID) {
+            return defaultDeviceID
+        }
+        return availableDeviceIDs.first ?? "default"
     }
 
     static func microphoneDisplayName(for device: AVCaptureDevice, devices: [AVCaptureDevice]) -> String {

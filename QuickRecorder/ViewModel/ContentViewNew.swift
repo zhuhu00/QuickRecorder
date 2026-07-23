@@ -30,7 +30,6 @@ struct ContentViewNew: View {
     @State private var cameraIsRunning = false
     @State private var cameraList: [AVCaptureDevice] = []
     @State private var micList: [AVCaptureDevice] = []
-    @State private var defaultMicrophoneName: String?
     @State private var hasLoadedDevices = false
 
     @AppStorage("cameraDevice") private var cameraDevice: String = "default"
@@ -211,7 +210,6 @@ struct ContentViewNew: View {
             action: { recordMic.toggle() }
         ) {
             Picker("Microphone".local, selection: $micDevice) {
-                Text(preferredMicrophoneLabel).tag("default")
                 ForEach(micList, id: \.uniqueID) { microphone in
                     Text(SCContext.microphoneDisplayName(for: microphone, devices: micList))
                         .tag(microphone.uniqueID)
@@ -260,10 +258,6 @@ struct ContentViewNew: View {
     private var selectedCamera: AVCaptureDevice? {
         if cameraDevice == "default" { return preferredCamera }
         return cameraList.first(where: { $0.uniqueID == cameraDevice }) ?? preferredCamera
-    }
-
-    private var preferredMicrophoneLabel: String {
-        defaultMicrophoneName ?? "Microphone".local
     }
 
     private var inlineSettingsHeight: CGFloat {
@@ -390,7 +384,6 @@ struct ContentViewNew: View {
     private func refreshDevices() {
         cameraList = SCContext.getCameras()
         micList = SCContext.getMicrophone()
-        defaultMicrophoneName = AVCaptureDevice.default(for: .audio)?.localizedName
         hasLoadedDevices = true
         if cameraDevice != "default" && !cameraList.contains(where: { $0.uniqueID == cameraDevice }) {
             cameraDevice = "default"

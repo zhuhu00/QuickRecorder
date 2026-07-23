@@ -183,6 +183,45 @@ final class QuickRecorderConfigurationTests: XCTestCase {
 
         XCTAssertTrue(defaults.bool(forKey: "showMenubar"))
     }
+
+    func testMicrophoneSelectionAlwaysResolvesToARealDeviceWhenAvailable() {
+        let builtIn = "BuiltInMicrophoneDevice"
+        let headset = "ExternalHeadsetDevice"
+        let devices = [headset, builtIn]
+
+        XCTAssertEqual(
+            SCContext.resolvedMicrophoneSelection(
+                "default",
+                availableDeviceIDs: devices,
+                defaultDeviceID: builtIn
+            ),
+            builtIn
+        )
+        XCTAssertEqual(
+            SCContext.resolvedMicrophoneSelection(
+                headset,
+                availableDeviceIDs: devices,
+                defaultDeviceID: builtIn
+            ),
+            headset
+        )
+        XCTAssertEqual(
+            SCContext.resolvedMicrophoneSelection(
+                "DisconnectedDevice",
+                availableDeviceIDs: devices,
+                defaultDeviceID: builtIn
+            ),
+            builtIn
+        )
+        XCTAssertEqual(
+            SCContext.resolvedMicrophoneSelection(
+                "default",
+                availableDeviceIDs: [],
+                defaultDeviceID: nil
+            ),
+            "default"
+        )
+    }
 }
 
 final class WriterSessionGateTests: XCTestCase {

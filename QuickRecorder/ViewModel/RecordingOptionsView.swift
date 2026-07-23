@@ -135,7 +135,6 @@ struct OptionsView: View {
                         .onAppear{ if micList.isEmpty { recordMic = false } }
                         .disabled(micList.isEmpty)
                         Picker("", selection: $micDevice) {
-                            Text("Default".local).tag("default")
                             ForEach(micList, id: \.uniqueID) { device in
                                 Text(SCContext.microphoneDisplayName(for: device, devices: micList))
                                     .tag(device.uniqueID)
