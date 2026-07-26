@@ -11,6 +11,9 @@
 		A10000000000000000000002 /* RecordingLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000004 /* RecordingLifecycleTests.swift */; };
 		A20000000000000000000001 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* LICENSE */; };
 		A20000000000000000000002 /* THIRD_PARTY_NOTICES.md in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* THIRD_PARTY_NOTICES.md */; };
+		A30000000000000000000001 /* Transcription.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000003 /* Transcription.swift */; };
+		A30000000000000000000002 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = A30000000000000000000005 /* WhisperKit */; };
+		A30000000000000000000006 /* SpeakerKit in Frameworks */ = {isa = PBXBuildFile; productRef = A30000000000000000000007 /* SpeakerKit */; };
 		1821F2E82CF4B226004A2EC0 /* ContentViewNew.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1821F2E72CF4B226004A2EC0 /* ContentViewNew.swift */; };
 		184CAEC72BDCCC2300D61D57 /* AVContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 184CAEC62BDCCC2300D61D57 /* AVContext.swift */; };
 		184CAEC92BDDEC6800D61D57 /* AppBlockSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 184CAEC82BDDEC6800D61D57 /* AppBlockSelector.swift */; };
@@ -63,6 +66,7 @@
 		A10000000000000000000005 /* QuickRecorderTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = QuickRecorderTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000003 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
 		A20000000000000000000004 /* THIRD_PARTY_NOTICES.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = THIRD_PARTY_NOTICES.md; sourceTree = "<group>"; };
+		A30000000000000000000003 /* Transcription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Transcription.swift; sourceTree = "<group>"; };
 		1821F2E72CF4B226004A2EC0 /* ContentViewNew.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentViewNew.swift; sourceTree = "<group>"; };
 		184CAEC62BDCCC2300D61D57 /* AVContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVContext.swift; sourceTree = "<group>"; };
 		184CAEC82BDDEC6800D61D57 /* AppBlockSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppBlockSelector.swift; sourceTree = "<group>"; };
@@ -118,6 +122,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A30000000000000000000002 /* WhisperKit in Frameworks */,
+				A30000000000000000000006 /* SpeakerKit in Frameworks */,
 				18AFF77B2D5F91F800C795A1 /* KeyboardShortcuts in Frameworks */,
 				18F40B492BFB988A00F0AC70 /* SwiftLAME in Frameworks */,
 				185582A62D1D1CC100F0CF47 /* AECAudioStream in Frameworks */,
@@ -174,6 +180,7 @@
 				189BD5E82BDE34B80056D06C /* InfoPlist.strings */,
 				189BD5F62BDFDF200056D06C /* Info.plist */,
 				18D3BDEA2BCE5DC1006CFFC0 /* QuickRecorderApp.swift */,
+				A30000000000000000000003 /* Transcription.swift */,
 				A10000000000000000000003 /* RecordingLifecycle.swift */,
 				18FEBDA92BCF8200003F09BC /* RecordEngine.swift */,
 				18D3BE032BCEC847006CFFC0 /* SCContext.swift */,
@@ -263,6 +270,8 @@
 			);
 			name = QuickRecorder;
 			packageProductDependencies = (
+				A30000000000000000000005 /* WhisperKit */,
+				A30000000000000000000007 /* SpeakerKit */,
 				18F40B482BFB988A00F0AC70 /* SwiftLAME */,
 				185582A52D1D1CC100F0CF47 /* AECAudioStream */,
 				18AFF77A2D5F91F800C795A1 /* KeyboardShortcuts */,
@@ -303,6 +312,7 @@
 			);
 			mainGroup = 18D3BDDE2BCE5DC1006CFFC0;
 			packageReferences = (
+				A30000000000000000000004 /* XCRemoteSwiftPackageReference "argmax-oss-swift" */,
 				18F40B472BFB988A00F0AC70 /* XCRemoteSwiftPackageReference "SwiftLAME" */,
 				185582A42D1D1CC100F0CF47 /* XCRemoteSwiftPackageReference "AECAudioStream" */,
 				18AFF7792D5F91F800C795A1 /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */,
@@ -355,6 +365,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A30000000000000000000001 /* Transcription.swift in Sources */,
 				A10000000000000000000001 /* RecordingLifecycle.swift in Sources */,
 				18FEBDAE2BD10ED1003F09BC /* ScreenSelector.swift in Sources */,
 				189BD5ED2BDE971B0056D06C /* VideoEditor.swift in Sources */,
@@ -691,6 +702,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		A30000000000000000000004 /* XCRemoteSwiftPackageReference "argmax-oss-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/argmaxinc/argmax-oss-swift.git";
+			requirement = {
+				kind = exactVersion;
+				version = 1.0.0;
+			};
+		};
 		185582A42D1D1CC100F0CF47 /* XCRemoteSwiftPackageReference "AECAudioStream" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/lihaoyun6/AECAudioStream.git";
@@ -718,6 +737,16 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		A30000000000000000000005 /* WhisperKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A30000000000000000000004 /* XCRemoteSwiftPackageReference "argmax-oss-swift" */;
+			productName = WhisperKit;
+		};
+		A30000000000000000000007 /* SpeakerKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A30000000000000000000004 /* XCRemoteSwiftPackageReference "argmax-oss-swift" */;
+			productName = SpeakerKit;
+		};
 		185582A52D1D1CC100F0CF47 /* AECAudioStream */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 185582A42D1D1CC100F0CF47 /* XCRemoteSwiftPackageReference "AECAudioStream" */;

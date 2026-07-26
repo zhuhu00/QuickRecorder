@@ -16,8 +16,8 @@ enum CompactRecorderLayout {
     static let settingsPanelGap: CGFloat = 8
     static let menuBarWidth: CGFloat = 416
     static let menuBarHeight: CGFloat = 150
-    static let menuBarSettingsCollapsedHeight: CGFloat = 462
-    static let menuBarSettingsExpandedHeight: CGFloat = 712
+    static let menuBarSettingsCollapsedHeight: CGFloat = 604
+    static let menuBarSettingsExpandedHeight: CGFloat = 854
 }
 
 struct ContentViewNew: View {

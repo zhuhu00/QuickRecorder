@@ -21,21 +21,26 @@ struct CompactSettingsView: View {
     @AppStorage("saveDirectory") private var saveDirectory: String = NSHomeDirectory() + "/Desktop"
     @AppStorage("showOnDock") private var showOnDock: Bool = true
     @AppStorage("showMenubar") private var showMenubar: Bool = true
+    @AppStorage(TranscriptionStore.autoTranscribeKey) private var autoTranscribe: Bool = false
+    @AppStorage(TranscriptionStore.languageKey) private var transcriptionLanguage: TranscriptionLanguage = .automatic
 
     @State private var launchAtLogin = false
     @State private var hotkeysExpanded = false
+    @ObservedObject private var transcription = TranscriptionStore.shared
 
     var body: some View {
         VStack(spacing: 10) {
             if compact {
                 VStack(spacing: 10) {
                     outputSettings
+                    transcriptionSettings
                     recordingSettings
                     startupSettings
                 }
             } else {
                 HStack(alignment: .top, spacing: 10) {
                     outputSettings
+                    transcriptionSettings
                     recordingSettings
                     startupSettings
                 }
@@ -108,6 +113,155 @@ struct CompactSettingsView: View {
                 .frame(width: 160, alignment: .trailing)
             }
         }
+    }
+
+    private var transcriptionSettings: some View {
+        CompactSettingsCard(title: "Transcription") {
+            CompactSettingRow(label: "Auto Transcribe") {
+                Toggle("Auto Transcribe".local, isOn: autoTranscribeBinding)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+            }
+
+            CompactSettingRow(label: "Language") {
+                Picker("Language".local, selection: $transcriptionLanguage) {
+                    ForEach(TranscriptionLanguage.allCases) { language in
+                        Text(language.displayName).tag(language)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(width: compact ? 155 : 100)
+            }
+
+            CompactSettingRow(label: "Model") {
+                modelControl
+            }
+
+            if case .downloading = transcription.modelStatus {
+                ProgressView(value: transcription.downloadProgress)
+                    .progressViewStyle(.linear)
+            } else if let task = transcription.currentTask {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(task.displayName)
+                            .font(.system(size: 10))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer(minLength: 4)
+                        Button("Cancel".local) {
+                            transcription.cancelCurrentTask()
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.system(size: 10))
+                    }
+                    ProgressView(value: transcription.progress)
+                        .progressViewStyle(.linear)
+                }
+            } else if transcription.waitingCount > 0 {
+                Text(String(format: "%d task(s) waiting".local, transcription.waitingCount))
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+
+            if let issue = transcription.retainedIssues.first {
+                HStack(spacing: 6) {
+                    Text(issue.displayName)
+                        .font(.system(size: 10))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 4)
+                    Button("Retry".local) { transcription.retry(issue) }
+                        .buttonStyle(.borderless)
+                        .font(.system(size: 10))
+                    Button("Remove".local) { transcription.remove(issue) }
+                        .buttonStyle(.borderless)
+                        .font(.system(size: 10))
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var modelControl: some View {
+        switch transcription.modelStatus {
+        case .notDownloaded, .failed:
+            Button("Download".local) {
+                transcription.downloadModel()
+            }
+            .buttonStyle(.borderless)
+        case .downloading:
+            HStack(spacing: 5) {
+                Text("\(Int(transcription.downloadProgress * 100))%")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Button("Cancel".local) {
+                    transcription.cancelModelDownload()
+                }
+                .buttonStyle(.borderless)
+            }
+        case .ready:
+            HStack(spacing: 5) {
+                Text(TranscriptionStore.approximateModelSize)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                Button("Delete".local, role: .destructive) {
+                    confirmModelDeletion()
+                }
+                .buttonStyle(.borderless)
+            }
+        case .loading:
+            ProgressView()
+                .controlSize(.small)
+        }
+    }
+
+    private var autoTranscribeBinding: Binding<Bool> {
+        Binding(
+            get: { autoTranscribe },
+            set: { newValue in
+                if !newValue {
+                    autoTranscribe = false
+                    transcription.setAutomaticTranscription(false)
+                    return
+                }
+
+                if transcription.modelStatus == .ready {
+                    autoTranscribe = true
+                    return
+                }
+
+                let alert = createAlert(
+                    level: .informational,
+                    title: "Download Transcription Model",
+                    message: String(
+                        format: "QuickRecorder will download a %@ local model. Recordings and transcripts never leave this Mac.".local,
+                        TranscriptionStore.approximateModelSize
+                    ),
+                    button1: "Download",
+                    button2: "Cancel"
+                )
+                if alert.runModal() == .alertFirstButtonReturn {
+                    autoTranscribe = true
+                    transcription.setAutomaticTranscription(true)
+                } else {
+                    autoTranscribe = false
+                }
+            }
+        )
+    }
+
+    private func confirmModelDeletion() {
+        let alert = createAlert(
+            title: "Delete Transcription Model",
+            message: "Automatic transcription will be turned off. Existing recordings and transcripts will not be deleted.",
+            button1: "Delete",
+            button2: "Cancel"
+        )
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        autoTranscribe = false
+        transcription.deleteModel()
     }
 
     private var recordingSettings: some View {

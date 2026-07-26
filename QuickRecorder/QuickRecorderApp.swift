@@ -297,6 +297,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
                 "preventSleep": true,
                 "showPreview": true,
                 "hideCCenter": false,
+                TranscriptionStore.autoTranscribeKey: false,
+                TranscriptionStore.languageKey: TranscriptionLanguage.automatic.rawValue,
                 "savedArea": [String: [String: CGFloat]]()
             ]
         )
@@ -306,6 +308,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
         
         if highRes == 0 { highRes = 2 }
         if showOnDock { NSApp.setActivationPolicy(.regular) }
+        UNUserNotificationCenter.current().delegate = self
+        TranscriptionNotifications.configure()
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
             if let error = error { print("Notification authorization denied: \(error.localizedDescription)") }
         }
@@ -419,6 +423,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
         if showOnDock { _ = applicationShouldHandleReopen(NSApp, hasVisibleWindows: true) }
         DispatchQueue.main.async {
             CompactSettingsPanelCoordinator.shared.prepare()
+            TranscriptionStore.shared.start()
         }
     }
     

@@ -95,6 +95,13 @@ final class QuickRecorderConfigurationTests: XCTestCase {
         XCTAssertEqual(Encoder.defaultValue, .h265)
     }
 
+    func testTranscriptionDefaultsAreLocalAndOptIn() {
+        XCTAssertEqual(TranscriptionStore.modelVariant, "large-v3-v20240930_626MB")
+        XCTAssertNil(TranscriptionLanguage.automatic.whisperLanguageCode)
+        XCTAssertEqual(TranscriptionLanguage.chinese.whisperLanguageCode, "zh")
+        XCTAssertEqual(TranscriptionLanguage.english.whisperLanguageCode, "en")
+    }
+
     func testRecordingIndicatorStyleDefaultsAndMigration() {
         XCTAssertEqual(RecordingIndicatorStyle.defaultValue, .full)
         XCTAssertEqual(
@@ -221,6 +228,84 @@ final class QuickRecorderConfigurationTests: XCTestCase {
             ),
             "default"
         )
+    }
+}
+
+final class TranscriptSidecarWriterTests: XCTestCase {
+    private var temporaryDirectory: URL!
+
+    override func setUpWithError() throws {
+        temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("QuickRecorderTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: temporaryDirectory)
+    }
+
+    func testSidecarNamesShareTheSameCollisionSuffix() throws {
+        let source = temporaryDirectory.appendingPathComponent("recording.m4a")
+        try Data().write(to: source)
+        try Data("existing".utf8).write(
+            to: temporaryDirectory.appendingPathComponent("recording.txt")
+        )
+
+        let urls = TranscriptSidecarWriter.availableURLs(for: source)
+
+        XCTAssertEqual(urls.txt.lastPathComponent, "recording-1.txt")
+        XCTAssertEqual(urls.srt.lastPathComponent, "recording-1.srt")
+    }
+
+    func testWritesCompleteTXTAndSRTAsAPair() throws {
+        let source = temporaryDirectory.appendingPathComponent("recording.m4a")
+        try Data().write(to: source)
+        let segments = [
+            TranscriptSegment(start: 1.25, end: 3.5, text: "你好"),
+            TranscriptSegment(start: 3.5, end: 4.75, text: "hello")
+        ]
+
+        let urls = try TranscriptSidecarWriter.writePair(
+            sourceURL: source,
+            text: "你好\n\nhello",
+            segments: segments
+        )
+
+        XCTAssertEqual(try String(contentsOf: urls.txt, encoding: .utf8), "你好\n\nhello")
+        let srt = try String(contentsOf: urls.srt, encoding: .utf8)
+        XCTAssertTrue(srt.contains("00:00:01,250 --> 00:00:03,500"))
+        XCTAssertTrue(srt.contains("你好"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: urls.srt.path))
+    }
+
+    func testSpeakerLabelsAppearOnlyInTXT() throws {
+        let source = temporaryDirectory.appendingPathComponent("meeting.m4a")
+        try Data().write(to: source)
+        let subtitleSegments = [
+            TranscriptSegment(start: 1, end: 3, text: "你好"),
+            TranscriptSegment(start: 3, end: 5, text: "hello")
+        ]
+        let speakerText = SpeakerTranscriptFormatter.text(
+            for: [
+                SpeakerTranscriptSegment(start: 1, end: 3, speaker: "A", text: "你好"),
+                SpeakerTranscriptSegment(start: 3, end: 5, speaker: "B", text: "hello")
+            ]
+        )
+
+        let urls = try TranscriptSidecarWriter.writePair(
+            sourceURL: source,
+            text: speakerText,
+            segments: subtitleSegments
+        )
+
+        let txt = try String(contentsOf: urls.txt, encoding: .utf8)
+        let srt = try String(contentsOf: urls.srt, encoding: .utf8)
+        XCTAssertTrue(txt.contains("Speaker A: 你好"))
+        XCTAssertTrue(txt.contains("Speaker B: hello"))
+        XCTAssertFalse(srt.contains("Speaker A"))
+        XCTAssertFalse(srt.contains("Speaker B"))
+        XCTAssertTrue(srt.contains("你好"))
+        XCTAssertTrue(srt.contains("hello"))
     }
 }
 

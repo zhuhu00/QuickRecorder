@@ -39,7 +39,7 @@ struct WriterSessionGate {
 }
 
 @MainActor
-private final class LegacyAssetExportJob {
+final class LegacyAssetExportJob {
     private let session: AVAssetExportSession
 
     init(session: AVAssetExportSession) {
@@ -152,10 +152,20 @@ class SCContext {
         return recordingLifecycle.phase
     }
 
+    static var isRecordingActive: Bool {
+        lifecyclePhase != .idle && lifecyclePhase != .failed
+    }
+
     static func beginRecordingStart() -> Bool {
         lifecycleLock.lock()
-        defer { lifecycleLock.unlock() }
-        return recordingLifecycle.beginStart()
+        let didBegin = recordingLifecycle.beginStart()
+        lifecycleLock.unlock()
+        if didBegin {
+            Task {
+                await TranscriptionCoordinator.shared.suspendForRecording()
+            }
+        }
+        return didBegin
     }
 
     @discardableResult
@@ -600,6 +610,7 @@ class SCContext {
                 do {
                     try await m4a2mp3(inputUrl: systemAudioPath.url, outputUrl: outputURL)
                     try? fd.removeItem(atPath: systemAudioPath)
+                    TranscriptionStore.enqueueIfEnabled(outputURL)
                     if !shouldShowPreview {
                         let title = "Recording Completed".local
                         let body = String(format: "File saved to: %@".local, outputURL.path.removingPercentEncoding!)
@@ -642,7 +653,12 @@ class SCContext {
                             saveURL,
                             saveAsMP3: exportMP3,
                             deleteQMAAfterExport: true,
-                            completion: completion
+                            completion: completion,
+                            resultCompletion: { result in
+                                if case .success(let finalURL) = result {
+                                    TranscriptionStore.enqueueIfEnabled(finalURL)
+                                }
+                            }
                         )
                     }
                 } catch {
@@ -654,6 +670,9 @@ class SCContext {
         }
 
         if !shouldShowPreview {
+            if outputPath.url.pathExtension.lowercased() != "qma" {
+                TranscriptionStore.enqueueIfEnabled(outputPath.url)
+            }
             let title = "Recording Completed".local
             let body = String(format: "File saved to: %@".local, outputPath)
             let id = "quickrecorder.completed.\(UUID().uuidString)"
@@ -661,6 +680,9 @@ class SCContext {
             completion()
         } else {
             DispatchQueue.main.async {
+                if outputPath.url.pathExtension.lowercased() != "qma" {
+                    TranscriptionStore.enqueueIfEnabled(outputPath.url)
+                }
                 showPreview(path: outputPath, image: NSImage(named: "qmaIcon"))
                 completion()
             }
@@ -875,6 +897,7 @@ class SCContext {
 
     private static func presentVideoOutput(_ outputURL: URL, context: RecordingStopContext) {
         DispatchQueue.main.async {
+            TranscriptionStore.enqueueIfEnabled(outputURL)
             if !context.shouldShowPreview {
                 showNotification(
                     title: "Recording Completed".local,
@@ -914,6 +937,9 @@ class SCContext {
             let completions = finishRecordingLifecycle()
             updateStatusBar()
             completions.forEach { $0() }
+            Task {
+                await TranscriptionCoordinator.shared.resumeIfPossible()
+            }
         }
     }
     

@@ -9,11 +9,16 @@ QuickRecorder depends on the components below. The exact revisions are locked in
 | MatrixColorSelector | `0853e68c0c9b205ffe6a963f2a56b26e6ceca51a` | Apache-2.0 | [source](https://github.com/lihaoyun6/MatrixColorSelector/tree/0853e68c0c9b205ffe6a963f2a56b26e6ceca51a), [license](https://github.com/lihaoyun6/MatrixColorSelector/blob/0853e68c0c9b205ffe6a963f2a56b26e6ceca51a/LICENSE) |
 | SwiftLAME | `e8256a8151594f47f103c742f684253c6c44871d` | LGPL-2.1 | [source](https://github.com/hidden-spectrum/SwiftLAME/tree/e8256a8151594f47f103c742f684253c6c44871d), [license](https://github.com/hidden-spectrum/SwiftLAME/blob/e8256a8151594f47f103c742f684253c6c44871d/LICENSE) |
 | LAME, bundled by SwiftLAME | revision bundled by the SwiftLAME lock above | LGPL-2.0 | [project](https://lame.sourceforge.io), [license notice](https://github.com/hidden-spectrum/SwiftLAME/blob/e8256a8151594f47f103c742f684253c6c44871d/Sources/LAME/LICENSE), [copying terms](https://github.com/hidden-spectrum/SwiftLAME/blob/e8256a8151594f47f103c742f684253c6c44871d/Sources/LAME/COPYING) |
+| Argmax OSS Swift / WhisperKit / SpeakerKit | 1.0.0 (`25c62997041c134b03ca82731ce2f6fd2cae1eb9`) | MIT | [source](https://github.com/argmaxinc/argmax-oss-swift/tree/25c62997041c134b03ca82731ce2f6fd2cae1eb9), [license](https://github.com/argmaxinc/argmax-oss-swift/blob/25c62997041c134b03ca82731ce2f6fd2cae1eb9/LICENSE) |
+| OpenAI Whisper model architecture and weights | `openai_whisper-large-v3-v20240930_626MB`, downloaded on demand from Argmax | MIT | [OpenAI source and license](https://github.com/openai/whisper/blob/main/LICENSE), [Argmax model source](https://huggingface.co/argmaxinc/whisperkit-coreml/tree/main/openai_whisper-large-v3-v20240930_626MB) |
+| SpeakerKit Core ML diarization models | `pyannote-v3` segmenter/embedder and `pyannote-v4` clusterer, downloaded on demand from Argmax | See upstream model terms | [Argmax model source](https://huggingface.co/argmaxinc/speakerkit-coreml) |
 
 ## MIT notices
 
 - KeyboardShortcuts: Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com).
 - AECAudioStream: Copyright (c) [2023] [0x67].
+- Argmax OSS Swift / WhisperKit / SpeakerKit: Copyright (c) 2024 argmax, inc.
+- OpenAI Whisper: Copyright (c) 2022 OpenAI.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of these components and associated documentation files (the “Software”), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 

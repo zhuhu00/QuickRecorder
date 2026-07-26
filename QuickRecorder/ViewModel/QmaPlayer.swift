@@ -612,7 +612,8 @@ class AudioPlayerManager: ObservableObject {
         _ url: URL,
         saveAsMP3: Bool = false,
         deleteQMAAfterExport: Bool = false,
-        completion: (() -> Void)? = nil
+        completion: (() -> Void)? = nil,
+        resultCompletion: ((Result<URL, Error>) -> Void)? = nil
     ) {
         var url = url
         if url.pathExtension == "mp3" { url = url.deletingPathExtension() }
@@ -642,8 +643,10 @@ class AudioPlayerManager: ObservableObject {
                             try? fd.removeItem(at: oldURL)
                             self.deleteQMAPackageIfNeeded(deleteQMAAfterExport)
                             SCContext.showNotification(title: title, body: body, id: id)
+                            resultCompletion?(.success(newURl))
                         } catch {
                             SCContext.showNotification(title: "Failed to save file".local, body: "\(error.localizedDescription)", id: "quickrecorder.error.\(UUID().uuidString)")
+                            resultCompletion?(.failure(error))
                         }
                         self.finishExporting()
                         completion?()
@@ -654,8 +657,10 @@ class AudioPlayerManager: ObservableObject {
                 }
                 
                 SCContext.showNotification(title: title, body: body, id: id)
+                resultCompletion?(.success(url))
             } catch {
                 SCContext.showNotification(title: "Failed to save file".local, body: "\(error.localizedDescription)", id: "quickrecorder.error.\(UUID().uuidString)")
+                resultCompletion?(.failure(error))
             }
             self.finishExporting()
             completion?()
