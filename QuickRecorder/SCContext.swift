@@ -15,6 +15,43 @@ import SwiftLAME
 import SwiftUI
 import AECAudioStream
 
+enum RecordingFileNamer {
+    static func baseName(
+        for date: Date,
+        capture: Bool,
+        timeZone: TimeZone = .current
+    ) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "yyyyMMdd_HHmmss"
+        let prefix = capture ? "Capture_" : "Recording_"
+        return prefix + formatter.string(from: date)
+    }
+
+    static func availableBaseName(
+        for date: Date,
+        capture: Bool,
+        existingFileNames: Set<String>,
+        timeZone: TimeZone = .current
+    ) -> String {
+        let baseName = baseName(for: date, capture: capture, timeZone: timeZone)
+        var suffix = 0
+
+        while true {
+            let candidate = suffix == 0 ? baseName : "\(baseName)-\(suffix)"
+            let isOccupied = existingFileNames.contains {
+                $0 == candidate || $0.hasPrefix(candidate + ".")
+            }
+            if !isOccupied {
+                return candidate
+            }
+            suffix += 1
+        }
+    }
+}
+
 struct WriterSessionGate {
     private(set) var sourceTime: CMTime?
 
@@ -317,9 +354,14 @@ class SCContext {
     }
     
     static func getFilePath(capture: Bool = false) -> String {
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "y-MM-dd HH.mm.ss"
-        return ud.string(forKey: "saveDirectory")! + (capture ? "/Capturing at ".local : "/Recording at ".local) + dateFormatter.string(from: Date())
+        let directory = URL(fileURLWithPath: ud.string(forKey: "saveDirectory")!, isDirectory: true)
+        let existingFileNames = Set((try? fd.contentsOfDirectory(atPath: directory.path)) ?? [])
+        let fileName = RecordingFileNamer.availableBaseName(
+            for: Date(),
+            capture: capture,
+            existingFileNames: existingFileNames
+        )
+        return directory.appendingPathComponent(fileName).path
     }
     
     static func updateAudioSettings(format: String = ud.string(forKey: "audioFormat") ?? "", rate: Int = 48000) -> [String : Any] {

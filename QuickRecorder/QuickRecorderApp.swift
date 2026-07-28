@@ -65,7 +65,6 @@ enum CompactRecorderPreferences {
         defaults.set(1, forKey: "poSafeDelay")
         defaults.set(BackgroundType.wallpaper.rawValue, forKey: "background")
         defaults.set(false, forKey: "trimAfterRecord")
-        defaults.set(false, forKey: "includeMenuBar")
         defaults.set(false, forKey: "hideCCenter")
         defaults.set(false, forKey: "hideDesktopFiles")
         defaults.set(false, forKey: "highlightMouse")
@@ -162,7 +161,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
     @AppStorage("countdown")        var countdown: Int = 0
     @AppStorage("poSafeDelay")      var poSafeDelay: Int = 1
     @AppStorage("highlightMouse")   var highlightMouse: Bool = false
-    @AppStorage("includeMenuBar")   var includeMenuBar: Bool = false
     @AppStorage("hideDesktopFiles") var hideDesktopFiles: Bool = false
     @AppStorage("trimAfterRecord")  var trimAfterRecord: Bool = false
     @AppStorage("hideSelf")         var hideSelf: Bool = true
@@ -274,7 +272,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
                 "hideSelf": true,
                 "highlightMouse" : false,
                 "hideDesktopFiles": false,
-                "includeMenuBar": false,
                 "videoQuality": 1.0,
                 "countdown": 0,
                 "cameraDevice": "default",
@@ -729,5 +726,15 @@ enum RecordingIndicatorStyle: String {
 }
 
 enum StreamType: Int { case screen, window, windows, screenarea, systemaudio }
+
+enum RecordingCaptureOptions {
+    static func showsCursor(showMouse: Bool, audioOnly: Bool) -> Bool {
+        !audioOnly && showMouse
+    }
+
+    static func includesMenuBar(for streamType: StreamType?) -> Bool {
+        streamType == .screen
+    }
+}
 
 enum BackgroundType: String { case wallpaper, clear, black, white, red, green, yellow, orange, gray, blue, custom }

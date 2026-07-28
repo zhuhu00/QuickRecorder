@@ -186,7 +186,6 @@ extension AppDelegate {
                     if highlightMouse { includ += mouseWindow }
                     if background.rawValue == BackgroundType.wallpaper.rawValue { if dockApp != nil { includ += wallpaper }}
                     SCContext.filter = SCContentFilter(display: screen, including: includ + camLayer)
-                    SCContext.filter?.includeMenuBar = includeMenuBar
                 } else {
                     SCContext.streamType = .window
                     SCContext.filter = SCContentFilter(desktopIndependentWindow: includ[0])
@@ -211,12 +210,12 @@ extension AppDelegate {
                 }}
                 if hideDesktopFiles { except += desktopFiles }
                 SCContext.filter = SCContentFilter(display: screen, excludingApplications: excluded, exceptingWindows: except)
-                SCContext.filter?.includeMenuBar = ((SCContext.streamType == .screen || SCContext.streamType == .screenarea) && includeMenuBar)
             }
         }
         if SCContext.streamType == .systemaudio {
             SCContext.filter = SCContentFilter(display: screen, excludingApplications: [], exceptingWindows: [])
         }
+        SCContext.filter?.includeMenuBar = RecordingCaptureOptions.includesMenuBar(for: SCContext.streamType)
         guard let filter = SCContext.filter else {
             failRecordingPreparation(message: "Unable to prepare the selected recording source.".local)
             return
@@ -282,17 +281,11 @@ extension AppDelegate {
 #endif
         conf.width = 2
         conf.height = 2
+        conf.showsCursor = RecordingCaptureOptions.showsCursor(showMouse: showMouse, audioOnly: audioOnly)
         
         if !audioOnly {
             conf.width = Int(filter.contentRect.width) * (highRes == 2 ? Int(filter.pointPixelScale) : 1)
             conf.height = Int(filter.contentRect.height) * (highRes == 2 ? Int(filter.pointPixelScale) : 1)
-            
-            if fastStart{
-                conf.showsCursor = false
-            } else{
-                conf.showsCursor = showMouse
-            }
-                    
 
             if background.rawValue != BackgroundType.wallpaper.rawValue { conf.backgroundColor = SCContext.getBackgroundColor() }
             if !recordHDR {

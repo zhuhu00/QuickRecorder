@@ -131,7 +131,6 @@ final class QuickRecorderConfigurationTests: XCTestCase {
 
         defaults.set(AudioFormat.flac.rawValue, forKey: "audioFormat")
         defaults.set(AudioQuality.extreme.rawValue, forKey: "audioQuality")
-        defaults.set(true, forKey: "includeMenuBar")
         defaults.set(true, forKey: "enableAEC")
         defaults.set(VideoFormat.mov.rawValue, forKey: "videoFormat")
         defaults.set(0.3, forKey: "videoQuality")
@@ -142,7 +141,6 @@ final class QuickRecorderConfigurationTests: XCTestCase {
 
         XCTAssertEqual(defaults.string(forKey: "audioFormat"), AudioFormat.aac.rawValue)
         XCTAssertEqual(defaults.integer(forKey: "audioQuality"), AudioQuality.high.rawValue)
-        XCTAssertFalse(defaults.bool(forKey: "includeMenuBar"))
         XCTAssertFalse(defaults.bool(forKey: "enableAEC"))
         XCTAssertEqual(defaults.string(forKey: "videoFormat"), VideoFormat.mov.rawValue)
         XCTAssertEqual(defaults.double(forKey: "videoQuality"), 1.0)
@@ -151,6 +149,55 @@ final class QuickRecorderConfigurationTests: XCTestCase {
         XCTAssertTrue(defaults.bool(forKey: "remuxAudio"))
         XCTAssertTrue(defaults.bool(forKey: "preventSleep"))
         XCTAssertTrue(defaults.bool(forKey: "hideSelf"))
+    }
+
+    func testRecordingCaptureOptionsFollowVisibleControls() {
+        XCTAssertTrue(RecordingCaptureOptions.showsCursor(showMouse: true, audioOnly: false))
+        XCTAssertFalse(RecordingCaptureOptions.showsCursor(showMouse: false, audioOnly: false))
+        XCTAssertFalse(RecordingCaptureOptions.showsCursor(showMouse: true, audioOnly: true))
+
+        XCTAssertTrue(RecordingCaptureOptions.includesMenuBar(for: .screen))
+        XCTAssertFalse(RecordingCaptureOptions.includesMenuBar(for: .screenarea))
+        XCTAssertFalse(RecordingCaptureOptions.includesMenuBar(for: .window))
+        XCTAssertFalse(RecordingCaptureOptions.includesMenuBar(for: .windows))
+        XCTAssertFalse(RecordingCaptureOptions.includesMenuBar(for: .systemaudio))
+    }
+
+    func testRecordingFileNamesAreSortableAndCollisionSafe() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        let timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        calendar.timeZone = timeZone
+        let date = try XCTUnwrap(
+            calendar.date(from: DateComponents(
+                year: 2026,
+                month: 7,
+                day: 28,
+                hour: 12,
+                minute: 34,
+                second: 56
+            ))
+        )
+
+        XCTAssertEqual(
+            RecordingFileNamer.baseName(for: date, capture: false, timeZone: timeZone),
+            "Recording_20260728_123456"
+        )
+        XCTAssertEqual(
+            RecordingFileNamer.baseName(for: date, capture: true, timeZone: timeZone),
+            "Capture_20260728_123456"
+        )
+        XCTAssertEqual(
+            RecordingFileNamer.availableBaseName(
+                for: date,
+                capture: false,
+                existingFileNames: [
+                    "Recording_20260728_123456.mp4",
+                    "Recording_20260728_123456-1.qma"
+                ],
+                timeZone: timeZone
+            ),
+            "Recording_20260728_123456-2"
+        )
     }
 
     func testCompactPreferencesPreserveSupportedOutputChoices() {
