@@ -144,11 +144,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
     var frameQueue = FixedLengthArray<CMTime>(maxLength: 20)
     private var isWaitingForTermination = false
     private var isCapturingMagnifierFrame = false
+    private var shouldEnableLaunchAtLoginByDefault = false
     
     @AppStorage("showOnDock")       var showOnDock: Bool = true
     @AppStorage("showMenubar")      var showMenubar: Bool = true
     @AppStorage("enableAEC")        var enableAEC: Bool = false
-    @AppStorage("recordMic")        var recordMic: Bool = false
+    @AppStorage("recordMic")        var recordMic: Bool = true
     @AppStorage("micDevice")        var micDevice: String = "default"
     @AppStorage("remuxAudio")       var remuxAudio: Bool = true
     @AppStorage("recordWinSound")   var recordWinSound: Bool = true
@@ -172,7 +173,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
     @AppStorage("videoQuality")     var videoQuality: Double = 1.0
     @AppStorage("videoFormat")      var videoFormat: VideoFormat = .mp4
     @AppStorage("audioFormat")      var audioFormat: AudioFormat = .aac
-    @AppStorage("audioQuality")     var audioQuality: AudioQuality = .high
+    @AppStorage("audioQuality")     var audioQuality: AudioQuality = .good
     @AppStorage("pixelFormat")      var pixelFormat: PixFormat = .delault
     @AppStorage("hideCCenter")      var hideCCenter: Bool = false
     
@@ -251,7 +252,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
             }
         }
         
-        lazy var userDesktop = (NSSearchPathForDirectoriesInDomains(.desktopDirectory, .userDomainMask, true) as [String]).first!
+        let defaultRecordingDirectory = fd.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Records", isDirectory: true)
+            .path
+
+        let existingPreferenceKeys = [
+            "recordingIndicatorStyle",
+            "miniStatusBar",
+            "saveDirectory",
+            "showOnDock",
+            "showMenubar",
+            TranscriptionStore.autoTranscribeKey
+        ]
+        let isExistingInstallation = existingPreferenceKeys.contains {
+            ud.object(forKey: $0) != nil
+        }
+        let hasStoredAutoTranscribe = ud.object(forKey: TranscriptionStore.autoTranscribeKey) != nil
         
         let storedIndicatorStyle = ud.object(forKey: "recordingIndicatorStyle") as? String
         let legacyMiniStatusBar = ud.object(forKey: "miniStatusBar") == nil
@@ -265,7 +281,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
         ud.register( // default defaults (used if not set)
             defaults: [
                 "audioFormat": AudioFormat.aac.rawValue,
-                "audioQuality": AudioQuality.high.rawValue,
+                "audioQuality": AudioQuality.good.rawValue,
                 "background": BackgroundType.wallpaper.rawValue,
                 "frameRate": 60,
                 "highRes": 2,
@@ -280,9 +296,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
                 "encoder": Encoder.defaultValue.rawValue,
                 "recordingIndicatorStyle": RecordingIndicatorStyle.defaultValue.rawValue,
                 "poSafeDelay": 1,
-                "saveDirectory": userDesktop as NSString,
+                "saveDirectory": defaultRecordingDirectory as NSString,
                 "showMouse": true,
-                "recordMic": false,
+                "recordMic": true,
                 "remuxAudio": true,
                 "recordWinSound": true,
                 "trimAfterRecord": false,
@@ -294,14 +310,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
                 "preventSleep": true,
                 "showPreview": true,
                 "hideCCenter": false,
-                TranscriptionStore.autoTranscribeKey: false,
+                TranscriptionStore.autoTranscribeKey: true,
                 TranscriptionStore.languageKey: TranscriptionLanguage.automatic.rawValue,
                 "savedArea": [String: [String: CGFloat]]()
             ]
         )
+        if !hasStoredAutoTranscribe {
+            ud.set(!isExistingInstallation, forKey: TranscriptionStore.autoTranscribeKey)
+        }
         ud.set(recordingIndicatorStyle.rawValue, forKey: "recordingIndicatorStyle")
         CompactRecorderPreferences.apply(to: ud)
         SCContext.migrateMicrophoneSelectionIfNeeded()
+
+        shouldEnableLaunchAtLoginByDefault = !isExistingInstallation
+            && SMAppService.mainApp.status == .notRegistered
         
         if highRes == 0 { highRes = 2 }
         if showOnDock { NSApp.setActivationPolicy(.regular) }
@@ -415,6 +437,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         assert(self === AppDelegate.shared)
         guard !AppRuntime.isRunningUnitTests else { return }
+
+        if shouldEnableLaunchAtLoginByDefault {
+            do {
+                try SMAppService.mainApp.register()
+            } catch {
+                print("Failed to enable launch at login by default: \(error.localizedDescription)")
+            }
+        }
 
         closeAllWindow()
         if showOnDock { _ = applicationShouldHandleReopen(NSApp, hasVisibleWindows: true) }

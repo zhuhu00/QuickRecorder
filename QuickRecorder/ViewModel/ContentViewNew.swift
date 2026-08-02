@@ -11,13 +11,13 @@ import ScreenCaptureKit
 enum CompactRecorderLayout {
     static let width: CGFloat = 850
     static let collapsedHeight: CGFloat = 80
-    static let settingsPanelCollapsedHeight: CGFloat = 184
-    static let settingsPanelExpandedHeight: CGFloat = 398
+    static let settingsPanelCollapsedHeight: CGFloat = 160
+    static let settingsPanelExpandedHeight: CGFloat = 272
     static let settingsPanelGap: CGFloat = 8
     static let menuBarWidth: CGFloat = 416
     static let menuBarHeight: CGFloat = 150
-    static let menuBarSettingsCollapsedHeight: CGFloat = 604
-    static let menuBarSettingsExpandedHeight: CGFloat = 854
+    static let menuBarSettingsCollapsedHeight: CGFloat = 619
+    static let menuBarSettingsExpandedHeight: CGFloat = 759
 }
 
 struct ContentViewNew: View {
@@ -33,7 +33,7 @@ struct ContentViewNew: View {
     @State private var hasLoadedDevices = false
 
     @AppStorage("cameraDevice") private var cameraDevice: String = "default"
-    @AppStorage("recordMic") private var recordMic: Bool = false
+    @AppStorage("recordMic") private var recordMic: Bool = true
     @AppStorage("micDevice") private var micDevice: String = "default"
     @AppStorage("showMouse") private var showMouse: Bool = true
 

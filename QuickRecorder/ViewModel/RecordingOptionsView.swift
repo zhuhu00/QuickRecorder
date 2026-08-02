@@ -15,7 +15,7 @@ struct OptionsView: View {
     @AppStorage("saveDirectory")  private var saveDirectory: String?
     @AppStorage("hideSelf")       private var hideSelf: Bool = false
     @AppStorage("showMouse")      private var showMouse: Bool = true
-    @AppStorage("recordMic")      private var recordMic: Bool = false
+    @AppStorage("recordMic")      private var recordMic: Bool = true
     @AppStorage("recordWinSound") private var recordWinSound: Bool = true
     @AppStorage("background")     private var background: BackgroundType = .wallpaper
     @AppStorage("highRes")        private var highRes: Int = 2

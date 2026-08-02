@@ -13,15 +13,15 @@ struct CompactSettingsView: View {
     var onHotkeysExpandedChange: ((Bool) -> Void)?
 
     @AppStorage("audioFormat") private var audioFormat: AudioFormat = .aac
-    @AppStorage("audioQuality") private var audioQuality: AudioQuality = .high
+    @AppStorage("audioQuality") private var audioQuality: AudioQuality = .good
     @AppStorage("videoFormat") private var videoFormat: VideoFormat = .mp4
     @AppStorage("videoQuality") private var videoQuality: Double = 1.0
     @AppStorage("recordingIndicatorStyle") private var recordingIndicatorStyle: RecordingIndicatorStyle = .defaultValue
     @AppStorage("showPreview") private var showPreview: Bool = true
-    @AppStorage("saveDirectory") private var saveDirectory: String = NSHomeDirectory() + "/Desktop"
+    @AppStorage("saveDirectory") private var saveDirectory: String = NSHomeDirectory() + "/Documents/Records"
     @AppStorage("showOnDock") private var showOnDock: Bool = true
     @AppStorage("showMenubar") private var showMenubar: Bool = true
-    @AppStorage(TranscriptionStore.autoTranscribeKey) private var autoTranscribe: Bool = false
+    @AppStorage(TranscriptionStore.autoTranscribeKey) private var autoTranscribe: Bool = true
     @AppStorage(TranscriptionStore.languageKey) private var transcriptionLanguage: TranscriptionLanguage = .automatic
 
     @State private var launchAtLogin = false
@@ -36,13 +36,22 @@ struct CompactSettingsView: View {
                     transcriptionSettings
                     recordingSettings
                     startupSettings
+                    compactHotkeySettings
                 }
             } else {
-                HStack(alignment: .top, spacing: 10) {
-                    outputSettings
-                    transcriptionSettings
-                    recordingSettings
-                    startupSettings
+                VStack(spacing: 10) {
+                    HStack(alignment: .top, spacing: 10) {
+                        outputSettings
+                        transcriptionSettings
+                        recordingSettings
+                        startupSettings
+                    }
+
+                    if hotkeysExpanded {
+                        CompactSettingsCard(title: "Keyboard Shortcuts", minimumHeight: nil) {
+                            CoreHotkeySettingsView(compact: false)
+                        }
+                    }
                 }
             }
 
@@ -54,64 +63,60 @@ struct CompactSettingsView: View {
 
     private var outputSettings: some View {
         CompactSettingsCard(title: "Output") {
-            HStack(alignment: .top, spacing: 8) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Audio".local)
-                        .font(.system(size: 11, weight: .medium))
+            HStack(spacing: 8) {
+                CompactMenuPicker(
+                    selection: $audioQuality,
+                    options: [(.good, "192K"), (.high, "256K")]
+                )
+                .frame(maxWidth: .infinity)
 
-                    Picker("Audio Quality".local, selection: $audioQuality) {
-                        Text("192K").tag(AudioQuality.good)
-                        Text("256K").tag(AudioQuality.high)
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: .infinity)
-
-                    Picker("Audio Format".local, selection: $audioFormat) {
-                        Text("AAC").tag(AudioFormat.aac)
-                        Text("MP3").tag(AudioFormat.mp3)
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                    .frame(maxWidth: .infinity)
-                }
-
-                Divider()
-
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Video".local)
-                        .font(.system(size: 11, weight: .medium))
-
-                    Picker("Video Quality".local, selection: $videoQuality) {
-                        Text("Standard".local).tag(0.7)
-                        Text("High".local).tag(1.0)
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: .infinity)
-
-                    Picker("Video Format".local, selection: $videoFormat) {
-                        Text("MP4").tag(VideoFormat.mp4)
-                        Text("MOV").tag(VideoFormat.mov)
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                    .frame(maxWidth: .infinity)
-                }
+                CompactMenuPicker(
+                    selection: $videoQuality,
+                    options: [(0.7, "Standard".local), (1.0, "High".local)]
+                )
+                .frame(maxWidth: .infinity)
             }
+            .frame(minHeight: 26)
 
-            CompactSettingRow(label: "Output Folder") {
+            HStack(spacing: 8) {
+                Picker("Audio Format".local, selection: $audioFormat) {
+                    Text("AAC").tag(AudioFormat.aac)
+                    Text("MP3").tag(AudioFormat.mp3)
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .controlSize(.small)
+                .frame(maxWidth: .infinity)
+
+                Picker("Video Format".local, selection: $videoFormat) {
+                    Text("MP4").tag(VideoFormat.mp4)
+                    Text("MOV").tag(VideoFormat.mov)
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .controlSize(.small)
+                .frame(maxWidth: .infinity)
+            }
+            .frame(minHeight: 26)
+
+            HStack(spacing: 8) {
+                Text("Output Folder".local)
+                    .font(.system(size: 11))
+                    .fixedSize(horizontal: true, vertical: false)
+                Spacer(minLength: 8)
                 Button(action: updateOutputDirectory) {
                     HStack(spacing: 4) {
                         Text(saveDirectory.lastPathComponent)
+                            .font(.system(size: 11))
                             .lineLimit(1)
                             .truncationMode(.middle)
                         Image(systemName: "chevron.right")
                     }
                 }
                 .buttonStyle(.borderless)
-                .frame(width: 160, alignment: .trailing)
+                .frame(width: 92, alignment: .trailing)
             }
+            .frame(minHeight: 26)
         }
     }
 
@@ -120,18 +125,15 @@ struct CompactSettingsView: View {
             CompactSettingRow(label: "Auto Transcribe") {
                 Toggle("Auto Transcribe".local, isOn: autoTranscribeBinding)
                     .labelsHidden()
-                    .toggleStyle(.switch)
+                    .toggleStyle(.checkbox)
                     .controlSize(.small)
             }
 
             CompactSettingRow(label: "Language") {
-                Picker("Language".local, selection: $transcriptionLanguage) {
-                    ForEach(TranscriptionLanguage.allCases) { language in
-                        Text(language.displayName).tag(language)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
+                CompactMenuPicker(
+                    selection: $transcriptionLanguage,
+                    options: TranscriptionLanguage.allCases.map { ($0, $0.displayName) }
+                )
                 .frame(width: compact ? 155 : 100)
             }
 
@@ -265,43 +267,60 @@ struct CompactSettingsView: View {
     }
 
     private var recordingSettings: some View {
-        CompactSettingsCard(title: "Recording") {
-            CompactSettingRow(label: "Recording Indicator") {
-                Picker("Recording Indicator".local, selection: $recordingIndicatorStyle) {
-                    Text("Full Controls".local).tag(RecordingIndicatorStyle.full)
-                    Text("Discreet Stop Icon".local).tag(RecordingIndicatorStyle.discreet)
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .frame(width: 155)
-            }
+        CompactSettingsCard(title: "Recording", minimumHeight: compact ? nil : 132) {
+            CompactMenuPicker(
+                selection: $recordingIndicatorStyle,
+                options: [
+                    (.full, "Full Controls".local),
+                    (.discreet, "Discreet Stop Icon".local)
+                ]
+            )
+            .frame(maxWidth: .infinity, minHeight: 26)
 
             CompactSettingRow(label: "Show Preview") {
                 Toggle("Show Preview".local, isOn: $showPreview)
                     .labelsHidden()
-                    .toggleStyle(.switch)
+                    .toggleStyle(.checkbox)
                     .controlSize(.small)
             }
 
-            Button(action: toggleHotkeys) {
-                HStack(spacing: 8) {
-                    Label("Keyboard Shortcuts".local, systemImage: "command")
-                        .font(.system(size: 12))
-                    Spacer(minLength: 8)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
-                        .rotationEffect(.degrees(hotkeysExpanded ? 90 : 0))
-                }
-                .contentShape(Rectangle())
+            if !compact {
+                hotkeyToggleButton
             }
-            .buttonStyle(.plain)
-            .frame(minHeight: 26)
+        }
+    }
+
+    private var compactHotkeySettings: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            hotkeyToggleButton
 
             if hotkeysExpanded {
                 Divider()
                 CoreHotkeySettingsView(compact: true)
             }
         }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(Color.primary.opacity(0.045))
+        )
+    }
+
+    private var hotkeyToggleButton: some View {
+        Button(action: toggleHotkeys) {
+            HStack(spacing: 8) {
+                Label("Keyboard Shortcuts".local, systemImage: "command")
+                    .font(.system(size: 12))
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .rotationEffect(.degrees(hotkeysExpanded ? 90 : 0))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, minHeight: 26)
     }
 
     private var startupSettings: some View {
@@ -309,14 +328,14 @@ struct CompactSettingsView: View {
             CompactSettingRow(label: "Launch at Login") {
                 Toggle("Launch at Login".local, isOn: launchAtLoginBinding)
                     .labelsHidden()
-                    .toggleStyle(.switch)
+                    .toggleStyle(.checkbox)
                     .controlSize(.small)
             }
 
             CompactSettingRow(label: "Show on Dock") {
                 Toggle("Show on Dock".local, isOn: showOnDockBinding)
                     .labelsHidden()
-                    .toggleStyle(.switch)
+                    .toggleStyle(.checkbox)
                     .controlSize(.small)
                     .disabled(showOnDock && !showMenubar)
             }
@@ -324,7 +343,7 @@ struct CompactSettingsView: View {
             CompactSettingRow(label: "Show on Menu Bar") {
                 Toggle("Show on Menu Bar".local, isOn: showMenubarBinding)
                     .labelsHidden()
-                    .toggleStyle(.switch)
+                    .toggleStyle(.checkbox)
                     .controlSize(.small)
                     .disabled(showMenubar && !showOnDock)
             }
@@ -403,10 +422,12 @@ struct CompactSettingsView: View {
 
 private struct CompactSettingsCard<Content: View>: View {
     let title: String
+    let minimumHeight: CGFloat?
     let content: Content
 
-    init(title: String, @ViewBuilder content: () -> Content) {
+    init(title: String, minimumHeight: CGFloat? = 132, @ViewBuilder content: () -> Content) {
         self.title = title
+        self.minimumHeight = minimumHeight
         self.content = content()
     }
 
@@ -417,7 +438,7 @@ private struct CompactSettingsCard<Content: View>: View {
             content
         }
         .padding(10)
-        .frame(maxWidth: .infinity, minHeight: 132, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: minimumHeight, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(Color.primary.opacity(0.045))
@@ -437,12 +458,46 @@ private struct CompactSettingRow<Content: View>: View {
     var body: some View {
         HStack(spacing: 8) {
             Text(label.local)
-                .font(.system(size: 12))
+                .font(.system(size: 11))
                 .lineLimit(1)
-            Spacer(minLength: 8)
+                .layoutPriority(1)
+            Spacer(minLength: 0)
             content
         }
-        .frame(minHeight: 26)
+        .frame(maxWidth: .infinity, minHeight: 26)
+    }
+}
+
+private struct CompactMenuPicker<Selection: Hashable>: View {
+    @Binding var selection: Selection
+    let options: [(Selection, String)]
+
+    private var selectionText: String {
+        options.first(where: { $0.0 == selection })?.1 ?? ""
+    }
+
+    var body: some View {
+        Menu {
+            ForEach(options.indices, id: \.self) { index in
+                let option = options[index]
+                Button {
+                    selection = option.0
+                } label: {
+                    if selection == option.0 {
+                        Label(option.1, systemImage: "checkmark")
+                    } else {
+                        Text(option.1)
+                    }
+                }
+            }
+        } label: {
+            Text(selectionText)
+                .lineLimit(1)
+            .font(.system(size: 11))
+            .frame(maxWidth: .infinity, minHeight: 22, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
     }
 }
 
@@ -452,25 +507,19 @@ private struct CoreHotkeySettingsView: View {
     var body: some View {
         if compact {
             VStack(spacing: 7) {
-                CoreHotkeyRow(label: "Open Main Panel", name: .showPanel)
                 CoreHotkeyRow(label: "Record System Audio", name: .startWithAudio)
                 CoreHotkeyRow(label: "Record Current Screen", name: .startWithScreen)
                 CoreHotkeyRow(label: "Select Area to Record", name: .startWithArea)
-                CoreHotkeyRow(label: "Record Topmost Window", name: .startWithWindow)
-                CoreHotkeyRow(label: "Pause / Resume", name: .pauseResume)
                 CoreHotkeyRow(label: "Stop Recording", name: .stop)
             }
         } else {
             HStack(alignment: .top, spacing: 28) {
                 VStack(spacing: 7) {
-                    CoreHotkeyRow(label: "Open Main Panel", name: .showPanel)
                     CoreHotkeyRow(label: "Record System Audio", name: .startWithAudio)
                     CoreHotkeyRow(label: "Record Current Screen", name: .startWithScreen)
-                    CoreHotkeyRow(label: "Select Area to Record", name: .startWithArea)
                 }
                 VStack(spacing: 7) {
-                    CoreHotkeyRow(label: "Record Topmost Window", name: .startWithWindow)
-                    CoreHotkeyRow(label: "Pause / Resume", name: .pauseResume)
+                    CoreHotkeyRow(label: "Select Area to Record", name: .startWithArea)
                     CoreHotkeyRow(label: "Stop Recording", name: .stop)
                 }
             }
@@ -494,14 +543,14 @@ private struct CoreHotkeyRow: View {
 }
 
 extension KeyboardShortcuts.Name {
-    static let startWithAudio = Self("startWithAudio")
-    static let startWithScreen = Self("startWithScreen")
+    static let startWithAudio = Self("startWithAudio", default: .init(.f2))
+    static let startWithScreen = Self("startWithScreen", default: .init(.f4))
     static let startWithWindow = Self("startWithWindow")
-    static let startWithArea = Self("startWithArea")
+    static let startWithArea = Self("startWithArea", default: .init(.f4, modifiers: .shift))
     static let screenMagnifier = Self("screenMagnifier")
     static let saveFrame = Self("saveFrame")
     static let pauseResume = Self("pauseResume")
-    static let stop = Self("stop")
+    static let stop = Self("stop", default: .init(.f5))
     static let showPanel = Self("showPanel")
 }
 

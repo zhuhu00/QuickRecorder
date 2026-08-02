@@ -258,7 +258,11 @@ final class TranscriptionStore: ObservableObject {
             }
         }
         Task {
-            await TranscriptionCoordinator.shared.bootstrap()
+            if ud.bool(forKey: Self.autoTranscribeKey) {
+                await TranscriptionCoordinator.shared.downloadModel()
+            } else {
+                await TranscriptionCoordinator.shared.bootstrap()
+            }
         }
     }
 
@@ -546,7 +550,8 @@ actor TranscriptionCoordinator {
 
     func enqueue(finalURL: URL) async {
         if !bootstrapped { await bootstrap() }
-        guard fileManager.fileExists(atPath: finalURL.path),
+        guard ["m4a", "mp3"].contains(finalURL.pathExtension.lowercased()),
+              fileManager.fileExists(atPath: finalURL.path),
               !records.contains(where: { $0.sourcePath == finalURL.path }) else { return }
         let rawLanguage = ud.string(forKey: TranscriptionStore.languageKey)
         let language = TranscriptionLanguage(rawValue: rawLanguage ?? "") ?? .automatic
