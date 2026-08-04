@@ -599,10 +599,19 @@ class SCContext {
         return writerSessionGate.open(at: sourceTime)
     }
 
-    static func resetWriterSession() {
+    static func resetWriterSession(cancelWriting: Bool = false) {
         writerSessionLock.lock()
+        let writerToCancel = cancelWriting ? vW : nil
         writerSessionGate.close()
+        vW = nil
+        vwInput = nil
+        awInput = nil
+        micInput = nil
         writerSessionLock.unlock()
+
+        if writerToCancel?.status == .writing {
+            writerToCancel?.cancelWriting()
+        }
     }
 
     static func setMicrophoneCaptureMode(_ mode: MicrophoneCaptureMode) {
@@ -831,7 +840,9 @@ class SCContext {
         resetWriterSession()
         if context.recordedMicrophone {
             stopMicrophoneCapture()
-            context.microphoneInput?.markAsFinished()
+            if context.writer?.status == .writing {
+                context.microphoneInput?.markAsFinished()
+            }
         }
 
         audioFile = nil
@@ -888,19 +899,29 @@ class SCContext {
             return
         }
 
-        writer.finishWriting {
-            guard writer.status == .completed else {
-                reportMicrophoneWriterFailure(writer)
-                completeRecordingLifecycle()
-                return
+        switch writer.status {
+        case .writing:
+            writer.finishWriting {
+                guard writer.status == .completed else {
+                    reportMicrophoneWriterFailure(writer)
+                    completeRecordingLifecycle()
+                    return
+                }
+                processOutput()
             }
+        case .completed:
             processOutput()
+        default:
+            reportMicrophoneWriterFailure(writer)
+            completeRecordingLifecycle()
         }
     }
 
     private static func finalizeVideoRecording(_ context: RecordingStopContext) {
-        context.videoInput?.markAsFinished()
-        context.systemAudioInput?.markAsFinished()
+        if context.writer?.status == .writing {
+            context.videoInput?.markAsFinished()
+            context.systemAudioInput?.markAsFinished()
+        }
 
         guard let writer = context.writer,
               let outputPath = context.outputPath else {
@@ -909,15 +930,7 @@ class SCContext {
             return
         }
 
-        writer.finishWriting {
-            guard writer.status == .completed else {
-                let error = writer.error?.localizedDescription ?? "Unknown Error".local
-                print("Video writing failed with status: \(writer.status), error: \(error)")
-                showNotification(title: "Failed to save file".local, body: error, id: "quickrecorder.error.\(UUID().uuidString)")
-                completeRecordingLifecycle()
-                return
-            }
-
+        let processOutput = {
             let outputURL = outputPath.url
             if context.recordedMicrophone && context.recordWindowSound && context.shouldRemuxAudio {
                 mixAudioTracks(videoURL: outputURL, videoFormat: context.videoFormat) { result in
@@ -934,6 +947,27 @@ class SCContext {
             } else {
                 presentVideoOutput(outputURL, context: context)
             }
+        }
+
+        switch writer.status {
+        case .writing:
+            writer.finishWriting {
+                guard writer.status == .completed else {
+                    let error = writer.error?.localizedDescription ?? "Unknown Error".local
+                    print("Video writing failed with status: \(writer.status), error: \(error)")
+                    showNotification(title: "Failed to save file".local, body: error, id: "quickrecorder.error.\(UUID().uuidString)")
+                    completeRecordingLifecycle()
+                    return
+                }
+                processOutput()
+            }
+        case .completed:
+            processOutput()
+        default:
+            let error = writer.error?.localizedDescription ?? "Unknown Error".local
+            print("Video writing failed with status: \(writer.status), error: \(error)")
+            showNotification(title: "Failed to save file".local, body: error, id: "quickrecorder.error.\(UUID().uuidString)")
+            completeRecordingLifecycle()
         }
     }
 

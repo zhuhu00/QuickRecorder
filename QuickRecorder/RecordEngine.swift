@@ -260,7 +260,7 @@ extension AppDelegate {
         var microphoneStarted = false
         var captureStartAttempted = false
         guard SCContext.beginRecordingStart() else { return }
-        SCContext.resetWriterSession()
+        SCContext.resetWriterSession(cancelWriting: true)
 
         do {
         
@@ -480,9 +480,7 @@ extension AppDelegate {
                 return packageURL
             } catch {
                 SCContext.audioFile = nil
-                if SCContext.vW?.status == .writing { SCContext.vW.cancelWriting() }
-                SCContext.vW = nil
-                SCContext.micInput = nil
+                SCContext.resetWriterSession(cancelWriting: true)
                 try? fd.removeItem(at: packageURL)
                 throw error
             }
@@ -621,11 +619,7 @@ extension AppDelegate {
             }
             return outputURL
         } catch {
-            if let writer = SCContext.vW, writer.status == .writing { writer.cancelWriting() }
-            SCContext.vW = nil
-            SCContext.vwInput = nil
-            SCContext.awInput = nil
-            SCContext.micInput = nil
+            SCContext.resetWriterSession(cancelWriting: true)
             try? fd.removeItem(at: outputURL)
             throw error
         }
@@ -721,7 +715,7 @@ extension AppDelegate {
         error: Error?,
         treatingAsCancellation: Bool
     ) async {
-        SCContext.resetWriterSession()
+        SCContext.resetWriterSession(cancelWriting: true)
         if captureStartAttempted, let stream {
             try? await stream.stopCapture()
         }
@@ -733,11 +727,6 @@ extension AppDelegate {
 
         SCContext.audioFile = nil
         SCContext.audioFile2 = nil
-        if let writer = SCContext.vW, writer.status == .writing { writer.cancelWriting() }
-        SCContext.vW = nil
-        SCContext.vwInput = nil
-        SCContext.awInput = nil
-        SCContext.micInput = nil
 
         if let outputURL, fd.fileExists(atPath: outputURL.path) {
             do {
