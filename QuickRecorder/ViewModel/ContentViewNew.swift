@@ -11,13 +11,13 @@ import ScreenCaptureKit
 enum CompactRecorderLayout {
     static let width: CGFloat = 850
     static let collapsedHeight: CGFloat = 80
-    static let settingsPanelCollapsedHeight: CGFloat = 160
-    static let settingsPanelExpandedHeight: CGFloat = 272
+    static let settingsPanelCollapsedHeight: CGFloat = 180
+    static let settingsPanelExpandedHeight: CGFloat = 292
     static let settingsPanelGap: CGFloat = 8
     static let menuBarWidth: CGFloat = 416
     static let menuBarHeight: CGFloat = 150
-    static let menuBarSettingsCollapsedHeight: CGFloat = 619
-    static let menuBarSettingsExpandedHeight: CGFloat = 759
+    static let menuBarSettingsCollapsedHeight: CGFloat = 639
+    static let menuBarSettingsExpandedHeight: CGFloat = 779
 }
 
 struct ContentViewNew: View {

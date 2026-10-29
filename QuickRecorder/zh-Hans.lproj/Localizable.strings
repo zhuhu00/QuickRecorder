@@ -88,6 +88,9 @@
 "Unknown App" = "未知应用";
 "A Window" = "单个窗口";
 "Output Folder" = "文件保存位置";
+"Restore Default Output Folder?" = "恢复默认保存位置？";
+"The output folder will change to:\n%@" = "文件保存位置将更改为：\n%@";
+"Restore Default" = "恢复默认";
 "Currently set to \"%@\"" = "当前保存在 \"%@\"";
 "/Recording at " = "/录制于 ";
 "/Capturing at " = "/捕获于 ";
@@ -257,7 +260,7 @@
 "The transcription model has not been downloaded." = "转写模型尚未下载。";
 "The recording contains no readable audio." = "录制文件中没有可读取的音频。";
 "No speaker labels could be generated for this recording." = "无法为这段录制生成说话人标签。";
-"Could not save the transcript files as a complete pair." = "无法将 TXT 和 SRT 作为完整的一组保存。";
+"Could not save the transcript files." = "无法保存转写文件。";
 "Cancelled by user" = "已由用户取消";
 "Copy Text" = "复制文本";
 "Show in Finder" = "在 Finder 中显示";

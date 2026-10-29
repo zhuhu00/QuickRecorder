@@ -117,6 +117,20 @@ struct CompactSettingsView: View {
                 .frame(width: 92, alignment: .trailing)
             }
             .frame(minHeight: 26)
+
+            HStack(spacing: 8) {
+                Text((saveDirectory as NSString).abbreviatingWithTildeInPath)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(saveDirectory)
+                Spacer(minLength: 0)
+                Button("Default".local, action: confirmDefaultOutputDirectory)
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+                .font(.system(size: 10))
+            }
         }
     }
 
@@ -396,6 +410,20 @@ struct CompactSettingsView: View {
                 updateStatusBar()
             }
         )
+    }
+
+    private func confirmDefaultOutputDirectory() {
+        let defaultDirectory = NSHomeDirectory() + "/Documents/Records"
+        let alert = createAlert(
+            level: .informational,
+            title: "Restore Default Output Folder?",
+            message: String(format: "The output folder will change to:\n%@".local, defaultDirectory),
+            button1: "Restore Default",
+            button2: "Cancel"
+        )
+        if alert.runModal() == .alertFirstButtonReturn {
+            saveDirectory = defaultDirectory
+        }
     }
 
     private func updateOutputDirectory() {

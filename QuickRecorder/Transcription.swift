@@ -122,7 +122,7 @@ enum TranscriptionFailure: LocalizedError {
         case .speakerDiarizationEmpty:
             return "No speaker labels could be generated for this recording.".local
         case .incompleteSidecarCommit:
-            return "Could not save the transcript files as a complete pair.".local
+            return "Could not save the transcript files.".local
         }
     }
 
@@ -135,16 +135,17 @@ enum TranscriptionFailure: LocalizedError {
 }
 
 enum TranscriptSidecarWriter {
-    static func availableURLs(for sourceURL: URL, fileManager: FileManager = .default) -> (txt: URL, srt: URL) {
+    static func availableURLs(for sourceURL: URL, fileManager: FileManager = .default) -> (txt: URL, srt: URL?) {
         let directory = sourceURL.deletingLastPathComponent()
         let basename = sourceURL.deletingPathExtension().lastPathComponent
+        let includesSRT = ["mp4", "mov"].contains(sourceURL.pathExtension.lowercased())
         var suffix = 0
 
         while true {
             let candidate = suffix == 0 ? basename : "\(basename)-\(suffix)"
             let txt = directory.appendingPathComponent(candidate).appendingPathExtension("txt")
-            let srt = directory.appendingPathComponent(candidate).appendingPathExtension("srt")
-            if !fileManager.fileExists(atPath: txt.path), !fileManager.fileExists(atPath: srt.path) {
+            let srt = includesSRT ? directory.appendingPathComponent(candidate).appendingPathExtension("srt") : nil
+            if !fileManager.fileExists(atPath: txt.path), srt.map({ !fileManager.fileExists(atPath: $0.path) }) ?? true {
                 return (txt, srt)
             }
             suffix += 1
@@ -162,12 +163,12 @@ enum TranscriptSidecarWriter {
         .joined(separator: "\n\n") + (segments.isEmpty ? "" : "\n")
     }
 
-    static func writePair(
+    static func write(
         sourceURL: URL,
         text: String,
         segments: [TranscriptSegment],
         fileManager: FileManager = .default
-    ) throws -> (txt: URL, srt: URL) {
+    ) throws -> (txt: URL, srt: URL?) {
         let targets = availableURLs(for: sourceURL, fileManager: fileManager)
         let directory = sourceURL.deletingLastPathComponent()
         guard fileManager.isWritableFile(atPath: directory.path) else {
@@ -176,27 +177,34 @@ enum TranscriptSidecarWriter {
 
         let token = UUID().uuidString
         let temporaryTXT = directory.appendingPathComponent(".quickrecorder-\(token).txt.tmp")
-        let temporarySRT = directory.appendingPathComponent(".quickrecorder-\(token).srt.tmp")
+        let temporarySRT = targets.srt.map { _ in
+            directory.appendingPathComponent(".quickrecorder-\(token).srt.tmp")
+        }
         var committedTXT = false
 
         defer {
             try? fileManager.removeItem(at: temporaryTXT)
-            try? fileManager.removeItem(at: temporarySRT)
+            if let temporarySRT {
+                try? fileManager.removeItem(at: temporarySRT)
+            }
         }
 
         try Data(text.utf8).write(to: temporaryTXT, options: .atomic)
-        try Data(srtText(for: segments).utf8).write(to: temporarySRT, options: .atomic)
+        if let temporarySRT {
+            try Data(srtText(for: segments).utf8).write(to: temporarySRT, options: .atomic)
+        }
 
         do {
             try fileManager.moveItem(at: temporaryTXT, to: targets.txt)
             committedTXT = true
-            try fileManager.moveItem(at: temporarySRT, to: targets.srt)
+            if let temporarySRT, let targetSRT = targets.srt {
+                try fileManager.moveItem(at: temporarySRT, to: targetSRT)
+            }
             return targets
         } catch {
             if committedTXT {
                 try? fileManager.removeItem(at: targets.txt)
             }
-            try? fileManager.removeItem(at: targets.srt)
             throw TranscriptionFailure.incompleteSidecarCommit
         }
     }
@@ -550,7 +558,7 @@ actor TranscriptionCoordinator {
 
     func enqueue(finalURL: URL) async {
         if !bootstrapped { await bootstrap() }
-        guard ["m4a", "mp3"].contains(finalURL.pathExtension.lowercased()),
+        guard ["m4a", "mp3", "mp4", "mov"].contains(finalURL.pathExtension.lowercased()),
               fileManager.fileExists(atPath: finalURL.path),
               !records.contains(where: { $0.sourcePath == finalURL.path }) else { return }
         let rawLanguage = ud.string(forKey: TranscriptionStore.languageKey)
@@ -774,7 +782,7 @@ actor TranscriptionCoordinator {
             try Task.checkCancellation()
 
             if let result {
-                let urls = try TranscriptSidecarWriter.writePair(
+                let urls = try TranscriptSidecarWriter.write(
                     sourceURL: record.sourceURL,
                     text: result.text,
                     segments: result.segments

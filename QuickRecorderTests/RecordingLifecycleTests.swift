@@ -292,7 +292,7 @@ final class TranscriptSidecarWriterTests: XCTestCase {
     }
 
     func testSidecarNamesShareTheSameCollisionSuffix() throws {
-        let source = temporaryDirectory.appendingPathComponent("recording.m4a")
+        let source = temporaryDirectory.appendingPathComponent("recording.mp4")
         try Data().write(to: source)
         try Data("existing".utf8).write(
             to: temporaryDirectory.appendingPathComponent("recording.txt")
@@ -301,32 +301,73 @@ final class TranscriptSidecarWriterTests: XCTestCase {
         let urls = TranscriptSidecarWriter.availableURLs(for: source)
 
         XCTAssertEqual(urls.txt.lastPathComponent, "recording-1.txt")
-        XCTAssertEqual(urls.srt.lastPathComponent, "recording-1.srt")
+        XCTAssertEqual(urls.srt?.lastPathComponent, "recording-1.srt")
+    }
+
+    func testVideoAvoidsExistingSRTWhenChoosingBothNames() throws {
+        let source = temporaryDirectory.appendingPathComponent("recording.MOV")
+        try Data("existing".utf8).write(
+            to: temporaryDirectory.appendingPathComponent("recording.srt")
+        )
+
+        let urls = TranscriptSidecarWriter.availableURLs(for: source)
+
+        XCTAssertEqual(urls.txt.lastPathComponent, "recording-1.txt")
+        XCTAssertEqual(urls.srt?.lastPathComponent, "recording-1.srt")
+    }
+
+    func testAudioWritesOnlyTXTWithoutTouchingExistingSRT() throws {
+        for fileExtension in ["m4a", "MP3"] {
+            let source = temporaryDirectory.appendingPathComponent("recording-\(fileExtension).\(fileExtension)")
+            let existingSRT = source.deletingPathExtension().appendingPathExtension("srt")
+            try Data("existing subtitles".utf8).write(to: existingSRT)
+            let text = "[00:00:01 - 00:00:03] Speaker A: 你好"
+
+            let urls = try TranscriptSidecarWriter.write(
+                sourceURL: source,
+                text: text,
+                segments: [TranscriptSegment(start: 1, end: 3, text: "你好")]
+            )
+
+            XCTAssertNil(urls.srt)
+            XCTAssertEqual(urls.txt, source.deletingPathExtension().appendingPathExtension("txt"))
+            XCTAssertEqual(try String(contentsOf: urls.txt, encoding: .utf8), text)
+            XCTAssertEqual(try String(contentsOf: existingSRT, encoding: .utf8), "existing subtitles")
+
+            let repeatedURLs = try TranscriptSidecarWriter.write(sourceURL: source, text: "second", segments: [])
+            XCTAssertEqual(repeatedURLs.txt.lastPathComponent, "recording-\(fileExtension)-1.txt")
+            XCTAssertNil(repeatedURLs.srt)
+            XCTAssertEqual(try String(contentsOf: urls.txt, encoding: .utf8), text)
+        }
+
+        let files = try FileManager.default.contentsOfDirectory(atPath: temporaryDirectory.path)
+        XCTAssertEqual(files.count, 6) // Two existing SRT files and four new TXT files.
     }
 
     func testWritesCompleteTXTAndSRTAsAPair() throws {
-        let source = temporaryDirectory.appendingPathComponent("recording.m4a")
+        let source = temporaryDirectory.appendingPathComponent("recording.mp4")
         try Data().write(to: source)
         let segments = [
             TranscriptSegment(start: 1.25, end: 3.5, text: "你好"),
             TranscriptSegment(start: 3.5, end: 4.75, text: "hello")
         ]
 
-        let urls = try TranscriptSidecarWriter.writePair(
+        let urls = try TranscriptSidecarWriter.write(
             sourceURL: source,
             text: "你好\n\nhello",
             segments: segments
         )
 
         XCTAssertEqual(try String(contentsOf: urls.txt, encoding: .utf8), "你好\n\nhello")
-        let srt = try String(contentsOf: urls.srt, encoding: .utf8)
+        let srtURL = try XCTUnwrap(urls.srt)
+        let srt = try String(contentsOf: srtURL, encoding: .utf8)
         XCTAssertTrue(srt.contains("00:00:01,250 --> 00:00:03,500"))
         XCTAssertTrue(srt.contains("你好"))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: urls.srt.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: srtURL.path))
     }
 
     func testSpeakerLabelsAppearOnlyInTXT() throws {
-        let source = temporaryDirectory.appendingPathComponent("meeting.m4a")
+        let source = temporaryDirectory.appendingPathComponent("meeting.mov")
         try Data().write(to: source)
         let subtitleSegments = [
             TranscriptSegment(start: 1, end: 3, text: "你好"),
@@ -339,14 +380,14 @@ final class TranscriptSidecarWriterTests: XCTestCase {
             ]
         )
 
-        let urls = try TranscriptSidecarWriter.writePair(
+        let urls = try TranscriptSidecarWriter.write(
             sourceURL: source,
             text: speakerText,
             segments: subtitleSegments
         )
 
         let txt = try String(contentsOf: urls.txt, encoding: .utf8)
-        let srt = try String(contentsOf: urls.srt, encoding: .utf8)
+        let srt = try String(contentsOf: XCTUnwrap(urls.srt), encoding: .utf8)
         XCTAssertTrue(txt.contains("Speaker A: 你好"))
         XCTAssertTrue(txt.contains("Speaker B: hello"))
         XCTAssertFalse(srt.contains("Speaker A"))
