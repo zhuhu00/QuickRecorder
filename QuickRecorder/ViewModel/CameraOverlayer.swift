@@ -104,10 +104,16 @@ struct SwiftCameraView: View {
                     .background(.secondary)
                 }
             }
+            .overlay {
+                RecorderDragSurface(excludedRects: [
+                    CGRect(x: geometry.size.width - 65, y: geometry.size.height - 65, width: 50, height: 50)
+                ])
+            }
             .clipShape(Circle())
             .overlay {
                 Circle()
                     .strokeBorder(.white.opacity(0.75), lineWidth: 2)
+                    .allowsHitTesting(false)
             }
         }
         .frame(minWidth: 100, minHeight: 100)

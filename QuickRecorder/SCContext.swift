@@ -574,6 +574,12 @@ class SCContext {
         guard let adjustedSample = sampleBufferForRecording(sampleBuffer) else { return }
         let presentationTime = CMSampleBufferGetPresentationTimeStamp(adjustedSample)
 
+        // With no system-audio file, the first microphone sample starts the audio-only timeline.
+        if streamType == .systemaudio && audioFile == nil {
+            guard !isStopping, startWriterSessionIfNeeded(at: presentationTime) else { return }
+            if startTime == nil { startTime = Date.now }
+        }
+
         writerSessionLock.lock()
         defer { writerSessionLock.unlock() }
         guard writerSessionGate.accepts(presentationTime),
@@ -650,12 +656,12 @@ class SCContext {
         outputPath: String,
         systemAudioPath: String,
         audioFormat: String,
-        recordedMicrophone: Bool,
+        usesAudioPackage: Bool,
         shouldRemuxAudio: Bool,
         shouldShowPreview: Bool,
         completion: @escaping () -> Void
     ) {
-        if audioFormat == AudioFormat.mp3.rawValue && !recordedMicrophone {
+        if audioFormat == AudioFormat.mp3.rawValue && !usesAudioPackage {
             Task {
                 let outputURL = (String(outputPath.dropLast(4)) + ".mp3").url
                 do {
@@ -682,7 +688,7 @@ class SCContext {
             return
         }
 
-        if shouldRemuxAudio && recordedMicrophone {
+        if shouldRemuxAudio && usesAudioPackage {
             let packageURL = outputPath.url
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
@@ -882,7 +888,7 @@ class SCContext {
                 outputPath: outputPath,
                 systemAudioPath: systemAudioPath,
                 audioFormat: context.audioFormat,
-                recordedMicrophone: context.recordedMicrophone,
+                usesAudioPackage: outputPath.url.pathExtension.lowercased() == "qma",
                 shouldRemuxAudio: context.shouldRemuxAudio,
                 shouldShowPreview: context.shouldShowPreview,
                 completion: completeRecordingLifecycle

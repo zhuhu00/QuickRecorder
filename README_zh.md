@@ -15,10 +15,15 @@ QuickRecorder 是一款基于 SwiftUI、ScreenCaptureKit 与 AVFoundation 的 ma
 当前 Fork 的主要变化包括：
 
 - 增加菜单栏入口和可选择设备的相机、麦克风控制。
+- 系统声音与麦克风独立开关；只录麦克风、只录系统声音或混合录制，纯录音未选择来源时会提示。
+- 紧凑两行控件与完整设备列表；菜单栏弹窗上下对齐。
+- 本地自动转写输出 TXT/SRT，入队前检测无音轨和静音成片并跳过。
 - 增加可拖动、置顶并进入最终录屏的圆形相机悬浮层。
 - 删除 Application 与 Mobile Device 录制入口，保留整屏、区域和窗口录制。
 - 修复录制停止、暂停恢复、麦克风断连降级、QMA 导出和设备身份保存问题。
 - 仅面向 Apple Silicon 与 macOS 14.2 及以上版本。
+
+本轮更新与验证范围见 [1.8.7 开发记录](./docs/development/1.8.7-recording-update.md)。
 
 ## 安装
 

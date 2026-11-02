@@ -134,11 +134,56 @@ enum TranscriptionFailure: LocalizedError {
     }
 }
 
+enum RecordingAudioPresence {
+    // -60 dBFS RMS: reject silence and negligible noise without requiring speech.
+    static func hasSound(in url: URL) async throws -> Bool {
+        let asset = AVURLAsset(url: url)
+        let tracks = try await asset.loadTracks(withMediaType: .audio)
+        for track in tracks {
+            let reader = try AVAssetReader(asset: asset)
+            let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
+                AVFormatIDKey: kAudioFormatLinearPCM,
+                AVLinearPCMBitDepthKey: 32,
+                AVLinearPCMIsFloatKey: true,
+                AVLinearPCMIsBigEndianKey: false,
+                AVLinearPCMIsNonInterleaved: false
+            ])
+            guard reader.canAdd(output) else { throw TranscriptionFailure.emptyAudio }
+            reader.add(output)
+            guard reader.startReading() else { throw reader.error ?? TranscriptionFailure.emptyAudio }
+            defer { reader.cancelReading() }
+            while let sample = output.copyNextSampleBuffer() {
+                try Task.checkCancellation()
+                let audible = try autoreleasepool { () throws -> Bool in
+                    guard let block = CMSampleBufferGetDataBuffer(sample) else {
+                        throw TranscriptionFailure.emptyAudio
+                    }
+                    let length = CMBlockBufferGetDataLength(block)
+                    guard length > 0 else { return false }
+                    guard length.isMultiple(of: MemoryLayout<Float>.size) else {
+                        throw TranscriptionFailure.emptyAudio
+                    }
+                    var values = [Float](repeating: 0, count: length / MemoryLayout<Float>.size)
+                    let status = values.withUnsafeMutableBytes { bytes in
+                        CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: length, destination: bytes.baseAddress!)
+                    }
+                    guard status == kCMBlockBufferNoErr else { throw TranscriptionFailure.emptyAudio }
+                    let energy = values.reduce(0.0) { $0 + Double($1) * Double($1) }
+                    return energy / Double(values.count) > 0.000001
+                }
+                if audible { return true }
+            }
+            guard reader.status == .completed else { throw reader.error ?? TranscriptionFailure.emptyAudio }
+        }
+        return false
+    }
+}
+
 enum TranscriptSidecarWriter {
     static func availableURLs(for sourceURL: URL, fileManager: FileManager = .default) -> (txt: URL, srt: URL?) {
         let directory = sourceURL.deletingLastPathComponent()
         let basename = sourceURL.deletingPathExtension().lastPathComponent
-        let includesSRT = ["mp4", "mov"].contains(sourceURL.pathExtension.lowercased())
+        let includesSRT = ["m4a", "mp3", "mp4", "mov"].contains(sourceURL.pathExtension.lowercased())
         var suffix = 0
 
         while true {
@@ -357,6 +402,16 @@ actor WhisperTranscriptionWorker {
         language: TranscriptionLanguage,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws -> (text: String, segments: [TranscriptSegment])? {
+        try Task.checkCancellation()
+        progress(0.05)
+        let samples = try AudioProcessor.loadAudioAsFloatArray(fromPath: audioURL.path)
+        guard !samples.isEmpty else { return nil }
+
+        let vad = EnergyVAD(frameLength: 0.1, frameOverlap: 0.02)
+        guard vad.voiceActivity(in: samples).contains(true) else {
+            return nil
+        }
+
         guard let modelPath = ud.string(forKey: TranscriptionStore.modelPathKey),
               fd.fileExists(atPath: modelPath) else {
             throw TranscriptionFailure.modelMissing
@@ -378,16 +433,6 @@ actor WhisperTranscriptionWorker {
             let loaded = try await WhisperKit(config)
             whisperKit = loaded
             kit = loaded
-        }
-
-        try Task.checkCancellation()
-        progress(0.2)
-        let samples = try AudioProcessor.loadAudioAsFloatArray(fromPath: audioURL.path)
-        guard !samples.isEmpty else { throw TranscriptionFailure.emptyAudio }
-
-        let vad = EnergyVAD(frameLength: 0.1, frameOverlap: 0.02)
-        guard vad.voiceActivity(in: samples).contains(true) else {
-            return nil
         }
 
         try Task.checkCancellation()
@@ -561,6 +606,17 @@ actor TranscriptionCoordinator {
         guard ["m4a", "mp3", "mp4", "mov"].contains(finalURL.pathExtension.lowercased()),
               fileManager.fileExists(atPath: finalURL.path),
               !records.contains(where: { $0.sourcePath == finalURL.path }) else { return }
+        do {
+            let containsSound = try await Task.detached(priority: .utility) {
+                try await RecordingAudioPresence.hasSound(in: finalURL)
+            }.value
+            guard containsSound else { return }
+        } catch {
+            // A decoding failure is not proof of silence. Preserve normal queue error handling.
+            NSLog("Audio presence check failed: %@", error.localizedDescription)
+        }
+        // Another completion callback may have enqueued this file while we scanned it.
+        guard !records.contains(where: { $0.sourcePath == finalURL.path }) else { return }
         let rawLanguage = ud.string(forKey: TranscriptionStore.languageKey)
         let language = TranscriptionLanguage(rawValue: rawLanguage ?? "") ?? .automatic
         records.append(
@@ -792,6 +848,8 @@ actor TranscriptionCoordinator {
                 TranscriptionNotifications.sendNoSpeech(sourceURL: record.sourceURL)
             }
 
+            records.removeAll(where: { $0.id == record.id })
+        } catch TranscriptionFailure.noAudioTrack {
             records.removeAll(where: { $0.id == record.id })
         } catch is CancellationError {
             if let currentIndex = records.firstIndex(where: { $0.id == record.id }),

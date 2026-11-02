@@ -15,6 +15,9 @@ This community fork is maintained by [zhuhu00](https://github.com/zhuhu00). Its 
 Major fork changes include:
 
 - Menubar access and device-selectable camera and microphone controls.
+- Independent system-audio and microphone switches, including microphone-only recording and an audio-source check before audio-only capture.
+- Compact two-row controls and complete device lists, with aligned menubar controls.
+- Local TXT/SRT transcription with an audio-presence check that skips silent recordings before queueing.
 - A draggable, always-on-top circular camera overlay captured in the final recording.
 - Removal of Application and Mobile Device recording, retaining display, area, and window capture.
 - Recording lifecycle, pause/resume, microphone fallback, QMA export, and device identity fixes.

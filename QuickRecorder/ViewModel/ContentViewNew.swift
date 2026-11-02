@@ -9,7 +9,7 @@ import AVFoundation
 import ScreenCaptureKit
 
 enum CompactRecorderLayout {
-    static let width: CGFloat = 850
+    static let width: CGFloat = 780
     static let collapsedHeight: CGFloat = 80
     static let settingsPanelCollapsedHeight: CGFloat = 180
     static let settingsPanelExpandedHeight: CGFloat = 292
@@ -33,6 +33,7 @@ struct ContentViewNew: View {
     @State private var hasLoadedDevices = false
 
     @AppStorage("cameraDevice") private var cameraDevice: String = "default"
+    @AppStorage("recordWinSound") private var recordWinSound: Bool = true
     @AppStorage("recordMic") private var recordMic: Bool = true
     @AppStorage("micDevice") private var micDevice: String = "default"
     @AppStorage("showMouse") private var showMouse: Bool = true
@@ -104,6 +105,13 @@ struct ContentViewNew: View {
                 }
             }
         }
+        .overlayPreferenceValue(RecorderControlBounds.self) { anchors in
+            if !fromStatusBar {
+                GeometryReader { proxy in
+                    RecorderDragSurface(excludedRects: anchors.map { proxy[$0] })
+                }
+            }
+        }
         .onAppear {
             refreshCameraState()
             if !fromStatusBar {
@@ -136,16 +144,9 @@ struct ContentViewNew: View {
     private var toolbar: some View {
         HStack(spacing: 8) {
             sourceControls
-
-            Divider()
-                .frame(height: 64)
-                .padding(.horizontal, 2)
-
-            cameraControl
-            microphoneControl
-            cursorControl
-            settingsControl
-            closeControl
+                .anchorPreference(key: RecorderControlBounds.self, value: .bounds) { [$0] }
+            Divider().frame(height: 64).padding(.horizontal, 2)
+            compactControls
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -154,18 +155,34 @@ struct ContentViewNew: View {
     private var menuBarToolbar: some View {
         VStack(spacing: 8) {
             sourceControls
-
             Divider()
-
-            HStack(spacing: 4) {
-                cameraControl
-                microphoneControl
-                cursorControl
-                settingsControl
-                closeControl
-            }
+            compactControls
         }
         .padding(10)
+    }
+
+    private var compactControls: some View {
+        HStack(spacing: 10) {
+            VStack(spacing: 8) {
+                cursorControl
+                    .anchorPreference(key: RecorderControlBounds.self, value: .bounds) { [$0] }
+                systemAudioControl
+                    .anchorPreference(key: RecorderControlBounds.self, value: .bounds) { [$0] }
+            }
+            VStack(spacing: 8) {
+                cameraControl
+                    .anchorPreference(key: RecorderControlBounds.self, value: .bounds) { [$0] }
+                microphoneControl
+                    .anchorPreference(key: RecorderControlBounds.self, value: .bounds) { [$0] }
+            }
+            VStack(spacing: 8) {
+                settingsControl
+                    .anchorPreference(key: RecorderControlBounds.self, value: .bounds) { [$0] }
+                closeControl
+                    .anchorPreference(key: RecorderControlBounds.self, value: .bounds) { [$0] }
+            }
+        }
+        .frame(height: 64)
     }
 
     private var sourceControls: some View {
@@ -178,77 +195,84 @@ struct ContentViewNew: View {
     }
 
     private var cameraControl: some View {
-        DeviceStateButton(
-            title: "Camera",
-            symbol: cameraIsRunning ? "video.fill" : "video.slash.fill",
-            isEnabled: cameraIsRunning,
-            isAvailable: !cameraList.isEmpty,
-            action: toggleCamera
-        ) {
-            Picker("Camera".local, selection: $cameraDevice) {
-                if let preferredCamera {
-                    Text(preferredCamera.localizedName).tag("default")
+        HStack(spacing: 4) {
+            smallControl(title: "Camera", symbol: cameraIsRunning ? "video.fill" : "video.slash.fill", active: cameraIsRunning, action: toggleCamera)
+                .disabled(cameraList.isEmpty)
+            DeviceSelectionList(
+                title: "Camera".local,
+                selection: $cameraDevice,
+                options: cameraList.map { camera in
+                    (cameraDevice == "default" && camera.uniqueID == preferredCamera?.uniqueID ? "default" : camera.uniqueID, camera.localizedName)
                 }
-                ForEach(cameraList.filter { $0.uniqueID != preferredCamera?.uniqueID }, id: \.uniqueID) { camera in
-                    Text(camera.localizedName).tag(camera.uniqueID)
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.menu)
+            )
+            .frame(width: fromStatusBar ? 192 : 132)
             .disabled(cameraList.isEmpty)
-            .opacity(cameraIsRunning ? 1 : 0.55)
             .onChange(of: cameraDevice) { switchCameraIfRunning() }
         }
+        .frame(width: fromStatusBar ? 224 : 164, height: 28)
+    }
+
+    private var systemAudioControl: some View {
+        HStack(spacing: 4) {
+            smallControl(title: "System Sound", symbol: recordWinSound ? "speaker.wave.2.fill" : "speaker.slash.fill", active: recordWinSound) { recordWinSound.toggle() }
+            Button { recordWinSound.toggle() } label: {
+                Text("System Sound".local)
+                    .font(.system(size: 12))
+                    .frame(width: 92, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(width: 124, height: 28)
     }
 
     private var microphoneControl: some View {
-        DeviceStateButton(
-            title: "Microphone",
-            symbol: recordMic ? "mic.fill" : "mic.slash.fill",
-            isEnabled: recordMic,
-            isAvailable: !micList.isEmpty,
-            action: { recordMic.toggle() }
-        ) {
-            Picker("Microphone".local, selection: $micDevice) {
-                ForEach(micList, id: \.uniqueID) { microphone in
-                    Text(SCContext.microphoneDisplayName(for: microphone, devices: micList))
-                        .tag(microphone.uniqueID)
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.menu)
+        HStack(spacing: 4) {
+            smallControl(title: "Microphone", symbol: recordMic ? "mic.fill" : "mic.slash.fill", active: recordMic) { recordMic.toggle() }
+                .disabled(micList.isEmpty)
+            DeviceSelectionList(
+                title: "Microphone".local,
+                selection: $micDevice,
+                options: micList.map { ($0.uniqueID, SCContext.microphoneDisplayName(for: $0, devices: micList)) }
+            )
+            .frame(width: fromStatusBar ? 192 : 132)
             .disabled(micList.isEmpty)
-            .opacity(recordMic ? 1 : 0.55)
         }
+        .frame(width: fromStatusBar ? 224 : 164, height: 28)
     }
 
     private var cursorControl: some View {
-        CompactIconButton(
-            symbol: "cursorarrow",
-            label: "Cursor",
-            isActive: showMouse,
-            action: { showMouse.toggle() }
-        )
+        HStack(spacing: 4) {
+            smallControl(title: "Cursor", symbol: "cursorarrow", active: showMouse) { showMouse.toggle() }
+            Button { showMouse.toggle() } label: {
+                Text("Cursor".local)
+                    .font(.system(size: 12))
+                    .frame(width: 92, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(width: 124, height: 28)
     }
 
     private var settingsControl: some View {
-        CompactIconButton(
-            symbol: "gearshape",
-            label: "Settings",
-            isActive: fromStatusBar
-                ? inlineSettingsVisible
-                : settingsPanel.isVisible(on: panelWindow),
-            action: toggleSettings
-        )
+        smallControl(title: "Settings", symbol: "gearshape", active: fromStatusBar ? inlineSettingsVisible : settingsPanel.isVisible(on: panelWindow), action: toggleSettings)
     }
 
     private var closeControl: some View {
-        CompactIconButton(
-            symbol: "xmark",
-            label: fromStatusBar ? "Quit" : "Close",
-            tint: .red,
-            action: closeOrQuit
-        )
+        smallControl(title: fromStatusBar ? "Quit" : "Close", symbol: "xmark", tint: .red, action: closeOrQuit)
+    }
+
+    private func smallControl(title: String, symbol: String, active: Bool = false, tint: Color = .primary, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(active ? Color.white : tint)
+                .frame(width: 28, height: 28)
+                .background(RoundedRectangle(cornerRadius: 6).fill(active ? Color.accentColor : Color.primary.opacity(0.06)))
+        }
+        .buttonStyle(.plain)
+        .help(title.local)
+        .accessibilityLabel(title.local)
+        .accessibilityValue((active ? "On" : "Off").local)
     }
 
     private var preferredCamera: AVCaptureDevice? {
@@ -629,84 +653,75 @@ private struct CompactSourceButton: View {
     }
 }
 
-private struct DeviceStateButton<Accessory: View>: View {
+// Show all connected devices in a content-sized popover rather than a scrolling menu.
+private struct DeviceSelectionList: View {
     let title: String
-    let symbol: String
-    let isEnabled: Bool
-    let isAvailable: Bool
-    let action: () -> Void
-    let accessory: Accessory
+    @Binding var selection: String
+    let options: [(id: String, name: String)]
+    @State private var isPresented = false
 
-    init(
-        title: String,
-        symbol: String,
-        isEnabled: Bool,
-        isAvailable: Bool = true,
-        action: @escaping () -> Void,
-        @ViewBuilder accessory: @escaping () -> Accessory
-    ) {
-        self.title = title
-        self.symbol = symbol
-        self.isEnabled = isEnabled
-        self.isAvailable = isAvailable
-        self.action = action
-        self.accessory = accessory()
+    private var selectedName: String {
+        options.first { $0.id == selection }?.name ?? title
     }
 
     var body: some View {
-        VStack(spacing: 3) {
-            Button(action: action) {
-                Image(systemName: symbol)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(isEnabled ? Color.white : Color.primary)
-                    .frame(width: 40, height: 38)
-                    .background(
-                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .fill(isEnabled ? Color.accentColor : Color.primary.opacity(0.08))
-                    )
-                    .contentShape(Rectangle())
+        Button { isPresented.toggle() } label: {
+            HStack(spacing: 4) {
+                Text(selectedName).lineLimit(1).truncationMode(.tail)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
             }
-            .buttonStyle(.plain)
-            .disabled(!isAvailable)
-
-            accessory
-                .controlSize(.small)
-                .frame(width: 124, height: 22)
+            .frame(maxWidth: .infinity)
         }
-        .frame(width: 124, height: 64)
-        .opacity(isAvailable ? 1 : 0.45)
-        .help(title.local)
-        .accessibilityLabel(title.local)
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .accessibilityLabel(title)
+        .accessibilityValue(selectedName)
+        .help(selectedName)
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(options, id: \.id) { option in
+                    DeviceSelectionRow(name: option.name, selected: option.id == selection) {
+                        selection = option.id
+                        isPresented = false
+                    }
+                }
+            }
+            .padding(6)
+            .frame(minWidth: 260)
+            .fixedSize(horizontal: true, vertical: true)
+        }
     }
 }
 
-private struct CompactIconButton: View {
-    let symbol: String
-    let label: String
-    var isActive = false
-    var tint: Color = .primary
+private struct DeviceSelectionRow: View {
+    let name: String
+    let selected: Bool
     let action: () -> Void
+    @State private var hovered = false
 
     var body: some View {
-        VStack(spacing: 3) {
-            Button(action: action) {
-                Image(systemName: symbol)
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(isActive ? Color.white : tint)
-                    .frame(width: 40, height: 38)
-                    .background(
-                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .fill(isActive ? Color.accentColor : Color.primary.opacity(0.04))
-                    )
-                    .contentShape(Rectangle())
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark").opacity(selected ? 1 : 0)
+                Text(name)
+                Spacer(minLength: 0)
             }
-            .buttonStyle(.plain)
-
-            Color.clear
-                .frame(height: 22)
+            .padding(.horizontal, 10)
+            .frame(height: 30)
+            .background(RoundedRectangle(cornerRadius: 4).fill(hovered ? Color.accentColor.opacity(0.15) : .clear))
+            .contentShape(Rectangle())
         }
-        .frame(width: 44, height: 64)
-        .help(label.local)
-        .accessibilityLabel(label.local)
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .accessibilityValue(selected ? "On".local : "Off".local)
+    }
+}
+
+private struct RecorderControlBounds: PreferenceKey {
+    static var defaultValue: [Anchor<CGRect>] = []
+    static func reduce(value: inout [Anchor<CGRect>], nextValue: () -> [Anchor<CGRect>]) {
+        value += nextValue()
     }
 }

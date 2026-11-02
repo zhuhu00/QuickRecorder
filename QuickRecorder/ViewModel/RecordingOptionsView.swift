@@ -115,7 +115,7 @@ struct OptionsView: View {
                             Image(systemName: "speaker.wave.1.fill")
                                 .font(.subheadline)
                                 .frame(width: 16)
-                            Text("App's Audio")
+                            Text("System Sound")
                                 .font(.subheadline)
                         }
                     }

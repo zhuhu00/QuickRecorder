@@ -25,6 +25,7 @@ private enum RecordingStartError: LocalizedError {
     case microphoneUnavailable
     case microphoneConfigurationFailed(String)
     case microphoneStartFailed
+    case noAudioSource
 
     var errorDescription: String? {
         switch self {
@@ -48,6 +49,8 @@ private enum RecordingStartError: LocalizedError {
             return "The selected microphone is no longer available.".local
         case .microphoneConfigurationFailed(let message):
             return String(format: "Unable to configure the microphone: %@".local, message)
+        case .noAudioSource:
+            return "Enable system sound or microphone before recording audio.".local
         case .microphoneStartFailed:
             return "Unable to start the selected microphone.".local
         }
@@ -264,6 +267,10 @@ extension AppDelegate {
 
         do {
         
+        guard !audioOnly || recordWinSound || shouldRecordMicrophone else {
+            throw RecordingStartError.noAudioSource
+        }
+
         let conf: SCStreamConfiguration
 #if compiler(>=6.0)
         if recordHDR {
@@ -306,7 +313,7 @@ extension AppDelegate {
             }
         }
         
-        conf.capturesAudio = recordWinSound || fastStart || audioOnly
+        conf.capturesAudio = recordWinSound
         conf.sampleRate = 48000
         conf.channelCount = 2
         
@@ -376,7 +383,7 @@ extension AppDelegate {
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: SCContext.streamOutputQueue)
         try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: SCContext.streamOutputQueue)
         if audioOnly {
-            createdOutputURL = try prepareAudioRecording(recordsMicrophone: shouldRecordMicrophone)
+            createdOutputURL = try prepareAudioRecording(recordsMicrophone: shouldRecordMicrophone, recordsSystemAudio: recordWinSound)
         } else {
             createdOutputURL = try initVideo(conf: conf, recordsMicrophone: shouldRecordMicrophone)
         }
@@ -430,7 +437,8 @@ extension AppDelegate {
         DispatchQueue.main.async(execute: finishStartWork)
     }
 
-    func prepareAudioRecording(recordsMicrophone: Bool) throws -> URL {
+    func prepareAudioRecording(recordsMicrophone: Bool, recordsSystemAudio: Bool) throws -> URL {
+        guard recordsMicrophone || recordsSystemAudio else { throw RecordingStartError.noAudioSource }
         var fileEnding = audioFormat.rawValue
         var fileType = AVFileType.m4a
         let encorder = fileEnding == AudioFormat.mp3.rawValue ? "aac" : fileEnding
@@ -443,7 +451,7 @@ extension AppDelegate {
             default: throw RecordingStartError.unsupportedFormat(fileEnding)
         }
         let path = SCContext.getFilePath()
-        if recordsMicrophone && SCContext.streamType == .systemaudio {
+        if recordsMicrophone && recordsSystemAudio {
             SCContext.filePath = "\(path).qma"
             SCContext.filePath1 = "\(path).qma/sys.\(fileEnding)"
             SCContext.filePath2 = "\(path).qma/mic.\(fileEnding)"
@@ -492,6 +500,24 @@ extension AppDelegate {
                 throw RecordingStartError.outputAlreadyExists(outputURL.path)
             }
             do {
+                if recordsMicrophone {
+                    // Microphone-only recordings use a single file, not a two-track QMA package.
+                    let settings = SCContext.updateAudioSettings(rate: SCContext.getSampleRate() ?? 48000)
+                    let writer = try AVAssetWriter(outputURL: outputURL, fileType: fileType)
+                    SCContext.vW = writer
+                    let input = AVAssetWriterInput(mediaType: .audio, outputSettings: settings)
+                    input.expectsMediaDataInRealTime = true
+                    guard writer.canAdd(input) else {
+                        throw RecordingStartError.cannotAddWriterInput("microphone")
+                    }
+                    writer.add(input)
+                    guard writer.startWriting() else {
+                        throw RecordingStartError.writerStartFailed(writer.error?.localizedDescription ?? "Unknown Error".local)
+                    }
+                    SCContext.micInput = input
+                    SCContext.audioFile = nil
+                    return outputURL
+                }
                 SCContext.audioFile = try AVAudioFile(
                     forWriting: outputURL,
                     settings: SCContext.updateAudioSettings(),
@@ -501,6 +527,7 @@ extension AppDelegate {
                 return outputURL
             } catch {
                 SCContext.audioFile = nil
+                SCContext.resetWriterSession(cancelWriting: true)
                 try? fd.removeItem(at: outputURL)
                 throw error
             }
